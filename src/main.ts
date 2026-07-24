@@ -39,7 +39,7 @@ const SORT_COLUMNS: { key: SortKey; label: string }[] = [
   { key: 'games', label: 'Games' },
 ]
 
-const UI_FLUSH_MS = 5000
+const CHART_FLUSH_MS = 2000
 const CONSOLE_MAX_LINES = 30
 const TABLE_TOP_N = 50
 
@@ -108,7 +108,7 @@ const about = el('details', { class: 'about' }, [
       'Parents are drawn by lottery: tickets = score^k (k between 1 and 2). Higher scores win more tickets, but nobody is culled until you hit max bots. Old bots stay in the pool, so ticket totals only grow.',
     ]),
     el('p', {}, [
-      'Everything runs in your browser (web workers). Charts, table, and console refresh every few seconds so eval stays fast. Save a checkpoint to IndexedDB, or export JSON.',
+      'Everything runs in your browser (web workers). The terminal streams as bots finish; charts and the top-50 table refresh every couple of seconds so eval stays fast. Save a checkpoint to IndexedDB, or export JSON.',
     ]),
     el('p', { class: 'about-note' }, [
       'Not affiliated with Hasbro, General Mills, or any brand. Public-domain game mechanics; original UI.',
@@ -220,6 +220,7 @@ const pendingBots: BotRow[] = []
 const pendingLogs: string[] = []
 let pendingStats: { created: number; best: number; bestId: number; popSize: number } | null = null
 let flushTimer: ReturnType<typeof setInterval> | null = null
+let consoleRaf: number | null = null
 
 const scoresheetHost = el('div', { class: 'scoresheet-host' })
 renderScoresheet(scoresheetHost, null)
@@ -451,17 +452,27 @@ function applyStats(s: { created: number; best: number; bestId: number; popSize:
   if (focusedPane === 'sheet' && s.bestId !== sheetBestId) refreshScoresheet(true)
 }
 
-function flushUi(): void {
+function flushConsole(): void {
+  if (pendingLogs.length === 0) return
+  for (const line of pendingLogs) pushConsoleLine(line)
+  pendingLogs.length = 0
+  renderConsole()
+}
+
+function scheduleConsoleFlush(): void {
+  if (consoleRaf !== null) return
+  consoleRaf = requestAnimationFrame(() => {
+    consoleRaf = null
+    flushConsole()
+  })
+}
+
+function flushCharts(): void {
   if (pendingBots.length > 0) {
     charts.addBatch(pendingBots.map((b) => ({ id: b.id, fitness: b.fitness })))
     tableRows = mergeTopBots(tableRows, pendingBots, TABLE_TOP_N)
     pendingBots.length = 0
     renderTable()
-  }
-  if (pendingLogs.length > 0) {
-    for (const line of pendingLogs) pushConsoleLine(line)
-    pendingLogs.length = 0
-    renderConsole()
   }
   if (pendingStats) {
     applyStats(pendingStats)
@@ -473,13 +484,18 @@ function flushUi(): void {
 
 function startFlushTimer(): void {
   if (flushTimer !== null) return
-  flushTimer = setInterval(flushUi, UI_FLUSH_MS)
+  flushTimer = setInterval(flushCharts, CHART_FLUSH_MS)
 }
 
 function stopFlushTimer(): void {
-  if (flushTimer === null) return
-  clearInterval(flushTimer)
-  flushTimer = null
+  if (flushTimer !== null) {
+    clearInterval(flushTimer)
+    flushTimer = null
+  }
+  if (consoleRaf !== null) {
+    cancelAnimationFrame(consoleRaf)
+    consoleRaf = null
+  }
 }
 
 function setSort(key: SortKey): void {
@@ -499,6 +515,7 @@ function wireOrch(): void {
     if (e.type === 'log') {
       pendingLogs.push(e.line)
       while (pendingLogs.length > CONSOLE_MAX_LINES) pendingLogs.shift()
+      scheduleConsoleFlush()
     }
     if (e.type === 'bot') {
       pendingBots.push({
@@ -527,7 +544,8 @@ function wireOrch(): void {
       if (e.running) {
         startFlushTimer()
       } else {
-        flushUi()
+        flushConsole()
+        flushCharts()
         stopFlushTimer()
       }
     }
