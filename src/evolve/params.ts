@@ -17,17 +17,17 @@ export interface EvolveParams {
 }
 
 export const DEFAULT_PARAMS: EvolveParams = {
-  k: 1.5,
-  seedCount: 50,
-  gamesPerFitness: 2,
-  pMut: 0.05,
-  mutSigma: 0.15,
-  maxBots: 2000,
-  hidden1: 48,
-  hidden2: 32,
-  endMaxBots: 500,
-  endTargetScore: 0,
-  endStagnation: 0,
+  k: 1.8,
+  seedCount: 100,
+  gamesPerFitness: 15,
+  pMut: 0.03,
+  mutSigma: 0.08,
+  maxBots: 400,
+  hidden1: 64,
+  hidden2: 48,
+  endMaxBots: 0,
+  endTargetScore: 700,
+  endStagnation: 2000,
   batchSize: 8,
 }
 
