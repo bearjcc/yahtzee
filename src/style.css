@@ -336,7 +336,8 @@ body {
   grid-column: span 2;
 }
 
-.form-grid input {
+.form-grid input,
+.setup-select {
   width: 100%;
   min-width: 0;
   font: 600 0.9rem 'IBM Plex Mono', Consolas, monospace;
@@ -344,6 +345,36 @@ body {
   border: 2px solid #8a6a30;
   background: var(--cream);
   color: var(--ink);
+}
+
+.setup-select-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.auto-grid {
+  margin-bottom: 8px;
+}
+
+.auto-btn-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.auto-btn {
+  width: 100%;
+  font: 700 0.85rem 'IBM Plex Sans', Tahoma, sans-serif;
+  padding: 6px 8px;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .hint {

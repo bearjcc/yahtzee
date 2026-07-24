@@ -1,6 +1,6 @@
 import { mulberry32, playGameResult, type GameResult } from '../engine/index.ts'
 import { decide, type NetShape } from '../nn/index.ts'
-import type { BotRecord } from './population.ts'
+import type { BotRecord } from './archive.ts'
 
 /** Legacy fallback when bot.gameSeeds is missing (pre-mixed-seed checkpoints). */
 export function evalBaseSeed(bot: Pick<BotRecord, 'id' | 'parentA'>): number {

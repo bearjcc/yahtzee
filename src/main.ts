@@ -1,10 +1,19 @@
 import './style.css'
 import {
-  DEFAULT_PARAMS,
+  autoConfigure,
+  DEFAULT_ALGORITHM_ID,
+  DEFAULT_SHARED,
   estimateStorageBytes,
   formatBytes,
+  getAlgorithm,
+  listAlgorithms,
+  pickShared,
   replayBotGames,
-  type EvolveParams,
+  SHARED_PARAM_SCHEMA,
+  type Algorithm,
+  type MachineChoice,
+  type ParamField,
+  type RunConfig,
 } from './evolve/index.ts'
 import { Orchestrator } from './evolve/orchestrator.ts'
 import { defaultShape, genomeLength, INPUT_SIZE, OUTPUT_SIZE } from './nn/index.ts'
@@ -14,13 +23,11 @@ import { renderScoresheet, SCORESHEET_GAME_COLS } from './ui/scoresheet.ts'
 import { downloadJson, loadCheckpoint, saveCheckpoint } from './store/idb.ts'
 
 type PaneId = 'fitness' | 'hist' | 'console' | 'table'
-type SortKey = 'id' | 'fitness' | 'parentA' | 'parentB' | 'games'
 type BotRow = {
   id: number
   fitness: number
-  parentA: number | null
-  parentB: number | null
   gameScores: number[]
+  cells: Record<string, string>
 }
 
 const FOCUS_CLASSES = [
@@ -29,14 +36,6 @@ const FOCUS_CLASSES = [
   'focus-console',
   'focus-table',
 ] as const
-
-const SORT_COLUMNS: { key: SortKey; label: string }[] = [
-  { key: 'id', label: 'Bot' },
-  { key: 'fitness', label: 'Score' },
-  { key: 'parentA', label: 'Parent A' },
-  { key: 'parentB', label: 'Parent B' },
-  { key: 'games', label: 'Games' },
-]
 
 const CHART_FLUSH_MS = 2000
 const CONSOLE_MAX_LINES = 30
@@ -56,9 +55,17 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node
 }
 
-function numInput(id: string, label: string, value: number, step = 'any', span2 = false): HTMLLabelElement {
-  const input = el('input', { id, type: 'number', value: String(value), step })
-  const lab = el('label', span2 ? { class: 'span2' } : {}, [label, input])
+function numInput(field: ParamField): HTMLLabelElement {
+  const input = el('input', {
+    id: `param-${field.key}`,
+    type: 'number',
+    value: String(field.default),
+    step: field.step ?? 'any',
+    'data-key': field.key,
+  })
+  if (field.min !== undefined) input.min = String(field.min)
+  if (field.max !== undefined) input.max = String(field.max)
+  const lab = el('label', field.span2 ? { class: 'span2' } : {}, [field.label, input])
   return lab
 }
 
@@ -84,6 +91,14 @@ function makePane(
   return { pane, maxBtn }
 }
 
+function hardwareHints() {
+  const nav = navigator as Navigator & { deviceMemory?: number }
+  return {
+    hardwareConcurrency: navigator.hardwareConcurrency || 4,
+    deviceMemory: nav.deviceMemory,
+  }
+}
+
 const app = document.querySelector<HTMLDivElement>('#app')!
 app.innerHTML = ''
 
@@ -97,15 +112,14 @@ const hero = el('header', { class: 'hero' }, [
 ])
 app.append(hero)
 
+const aboutAlgoP = el('p', { id: 'aboutAlgo' }, [''])
 const about = el('details', { class: 'about' }, [
   el('summary', {}, ['How it works']),
   el('div', { class: 'about-body' }, [
     el('p', {}, [
       'Each bot plays a batch of games. Fitness is mean score minus a small stdev penalty (less reward for one lucky spike). Half the games share a batch-wide seed suite (fair compare); the other half are private random seeds (limits overfitting).',
     ]),
-    el('p', {}, [
-      'You start with random seed nets. Most children are asexual: one lottery parent, then mutate. Sometimes two parents crossover. Parents are drawn by lottery: tickets = score^k (k between 1 and 2). Nobody is culled until you hit max bots.',
-    ]),
+    aboutAlgoP,
     el('p', {}, [
       'Everything runs in your browser (web workers). The terminal streams as bots finish; charts and the top-50 table refresh every couple of seconds so eval stays fast. Save a checkpoint to IndexedDB, or export JSON.',
     ]),
@@ -138,36 +152,47 @@ setupPanel.append(setupRail, setupInner)
 
 setupInner.append(el('h2', {}, ['Setup']))
 
-const form = el('div', { class: 'form-grid' })
-const fields = {
-  k: numInput('k', 'Lottery k (1-2)', DEFAULT_PARAMS.k, '0.05'),
-  seedCount: numInput('seedCount', 'Seed bots', DEFAULT_PARAMS.seedCount, '1'),
-  gamesPerFitness: numInput('gamesPerFitness', 'Games / fitness', DEFAULT_PARAMS.gamesPerFitness, '1'),
-  pMut: numInput('pMut', 'Mutation chance', DEFAULT_PARAMS.pMut, '0.0001'),
-  mutSigma: numInput('mutSigma', 'Mutation sigma', DEFAULT_PARAMS.mutSigma, '0.01'),
-  pCrossover: numInput('pCrossover', 'Crossover chance', DEFAULT_PARAMS.pCrossover, '0.01'),
-  sharedGameFraction: numInput(
-    'sharedGameFraction',
-    'Shared game fraction',
-    DEFAULT_PARAMS.sharedGameFraction,
-    '0.05',
-  ),
-  fitnessStdPenalty: numInput(
-    'fitnessStdPenalty',
-    'Fitness stdev penalty',
-    DEFAULT_PARAMS.fitnessStdPenalty,
-    '0.05',
-  ),
-  maxBots: numInput('maxBots', 'Max bots (prune)', DEFAULT_PARAMS.maxBots, '1'),
-  hidden1: numInput('hidden1', 'Hidden layer 1', DEFAULT_PARAMS.hidden1, '1'),
-  hidden2: numInput('hidden2', 'Hidden layer 2', DEFAULT_PARAMS.hidden2, '1'),
-  endMaxBots: numInput('endMaxBots', 'End: total bots (0=off)', DEFAULT_PARAMS.endMaxBots, '1'),
-  endTargetScore: numInput('endTargetScore', 'End: target score (0=off)', DEFAULT_PARAMS.endTargetScore, '1'),
-  endStagnation: numInput('endStagnation', 'End: stagnation (0=off)', DEFAULT_PARAMS.endStagnation, '1'),
-  batchSize: numInput('batchSize', 'Eval batch size', DEFAULT_PARAMS.batchSize, '1'),
+const algorithms = listAlgorithms()
+let currentAlgo: Algorithm = getAlgorithm(DEFAULT_ALGORITHM_ID)
+
+const algoLabel = el('label', { class: 'span2 setup-select-label' }, ['Algorithm'])
+const algoSelect = el('select', { id: 'algorithm', class: 'setup-select' })
+for (const a of algorithms) {
+  algoSelect.append(el('option', { value: a.id }, [a.label]))
 }
-for (const f of Object.values(fields)) form.append(f)
-setupInner.append(form)
+algoSelect.value = DEFAULT_ALGORITHM_ID
+algoLabel.append(algoSelect)
+
+const autoGrid = el('div', { class: 'form-grid auto-grid' })
+const targetLabel = el('label', {}, [
+  'Target score',
+  el('input', {
+    id: 'autoTarget',
+    type: 'number',
+    value: String(DEFAULT_SHARED.endTargetScore),
+    step: '1',
+    min: '0',
+  }),
+])
+const machineLabel = el('label', {}, ['Machine'])
+const machineSelect = el('select', { id: 'autoMachine', class: 'setup-select' })
+for (const [value, label] of [
+  ['auto', 'Auto-detect'],
+  ['phone', 'Phone'],
+  ['laptop', 'Laptop'],
+  ['desktop', 'Desktop'],
+] as const) {
+  machineSelect.append(el('option', { value }, [label]))
+}
+machineLabel.append(machineSelect)
+const autoBtn = el('button', { type: 'button', class: 'bevel auto-btn', id: 'autoBtn' }, ['Auto'])
+const autoBtnWrap = el('label', { class: 'span2 auto-btn-wrap' }, ['Presets + hardware', autoBtn])
+autoGrid.append(targetLabel, machineLabel, autoBtnWrap)
+
+const form = el('div', { class: 'form-grid', id: 'paramForm' })
+const fieldInputs = new Map<string, HTMLInputElement>()
+
+setupInner.append(algoLabel, autoGrid, form)
 
 const spaceHint = el('p', { class: 'hint', id: 'spaceHint' }, [''])
 setupInner.append(spaceHint)
@@ -227,22 +252,15 @@ const consoleEl = el('div', { class: 'console', id: 'console' }, ['Ready.\n'])
 const tableWrap = el('div', { class: 'table-wrap' })
 const table = el('table', { class: 'bots' })
 const theadRow = el('tr')
-const sortHeaders = new Map<SortKey, HTMLTableCellElement>()
-for (const col of SORT_COLUMNS) {
-  const th = el('th', { scope: 'col' })
-  const btn = el('button', { type: 'button' }, [col.label])
-  btn.addEventListener('click', () => setSort(col.key))
-  th.append(btn)
-  theadRow.append(th)
-  sortHeaders.set(col.key, th)
-}
 const thead = el('thead', {}, [theadRow])
 const tbody = el('tbody')
 table.append(thead, tbody)
 tableWrap.append(table)
 
+let tableColumns: { key: string; label: string }[] = []
+let sortHeaders = new Map<string, HTMLTableCellElement>()
 let tableRows: BotRow[] = []
-let sortKey: SortKey = 'fitness'
+let sortKey = 'fitness'
 let sortDir: 1 | -1 = -1
 let consoleLines: string[] = ['Ready.']
 const pendingBots: BotRow[] = []
@@ -272,7 +290,11 @@ const paneMaxBtns: Record<PaneId, HTMLButtonElement> = {
 let sheetBestId = 0
 
 const charts = new DashboardCharts(lineCanvas, histCanvas)
-let orch = new Orchestrator(DEFAULT_PARAMS)
+let orch = new Orchestrator({
+  algorithmId: DEFAULT_ALGORITHM_ID,
+  shared: { ...DEFAULT_SHARED },
+  algoParams: currentAlgo.defaultParams(),
+})
 let unsub: (() => void) | null = null
 let focusedPane: PaneId | null = null
 
@@ -338,39 +360,114 @@ sheetRail.addEventListener('click', () => setSheetCollapsed(false))
 
 new ResizeObserver(() => charts.resize()).observe(workspace)
 
-function readParams(): EvolveParams {
-  const g = (id: keyof typeof fields) => Number((fields[id].querySelector('input') as HTMLInputElement).value)
+function rebuildTableHeader(): void {
+  tableColumns = [
+    { key: 'id', label: 'Bot' },
+    { key: 'fitness', label: 'Score' },
+    ...currentAlgo.tableColumns,
+    { key: 'games', label: 'Games' },
+  ]
+  sortHeaders = new Map()
+  theadRow.replaceChildren()
+  for (const col of tableColumns) {
+    const th = el('th', { scope: 'col' })
+    const btn = el('button', { type: 'button' }, [col.label])
+    btn.addEventListener('click', () => setSort(col.key))
+    th.append(btn)
+    theadRow.append(th)
+    sortHeaders.set(col.key, th)
+  }
+  if (!tableColumns.some((c) => c.key === sortKey)) {
+    sortKey = 'fitness'
+    sortDir = -1
+  }
+  renderTable()
+}
+
+function rebuildParamForm(algo: Algorithm, values?: Record<string, number>): void {
+  currentAlgo = algo
+  aboutAlgoP.textContent = algo.blurb
+  fieldInputs.clear()
+  form.replaceChildren()
+
+  const schemas: ParamField[] = [...algo.paramSchema, ...SHARED_PARAM_SCHEMA]
+  for (const field of schemas) {
+    const lab = numInput({
+      ...field,
+      default: values?.[field.key] ?? field.default,
+    })
+    const input = lab.querySelector('input') as HTMLInputElement
+    fieldInputs.set(field.key, input)
+    input.addEventListener('input', updateSpaceHint)
+    form.append(lab)
+  }
+  rebuildTableHeader()
+  updateSpaceHint()
+}
+
+function readNumber(key: string, fallback: number): number {
+  const input = fieldInputs.get(key)
+  if (!input) return fallback
+  const n = Number(input.value)
+  return Number.isFinite(n) ? n : fallback
+}
+
+function clampField(field: ParamField, raw: number): number {
+  let n = raw
+  if (field.integer) n = Math.floor(n)
+  if (field.min !== undefined) n = Math.max(field.min, n)
+  if (field.max !== undefined) n = Math.min(field.max, n)
+  return n
+}
+
+function readRunConfig(): RunConfig {
+  const sharedRaw: Record<string, number> = { ...DEFAULT_SHARED }
+  for (const field of SHARED_PARAM_SCHEMA) {
+    sharedRaw[field.key] = clampField(field, readNumber(field.key, field.default))
+  }
+  const algoParams: Record<string, number> = {}
+  for (const field of currentAlgo.paramSchema) {
+    algoParams[field.key] = clampField(field, readNumber(field.key, field.default))
+  }
   return {
-    k: Math.min(2, Math.max(1, g('k'))),
-    seedCount: Math.max(1, Math.floor(g('seedCount'))),
-    gamesPerFitness: Math.max(1, Math.floor(g('gamesPerFitness'))),
-    pMut: Math.max(0, Math.min(1, g('pMut'))),
-    mutSigma: Math.max(0, g('mutSigma')),
-    pCrossover: Math.max(0, Math.min(1, g('pCrossover'))),
-    sharedGameFraction: Math.max(0, Math.min(1, g('sharedGameFraction'))),
-    fitnessStdPenalty: Math.max(0, g('fitnessStdPenalty')),
-    maxBots: Math.max(10, Math.floor(g('maxBots'))),
-    hidden1: Math.max(4, Math.floor(g('hidden1'))),
-    hidden2: Math.max(4, Math.floor(g('hidden2'))),
-    endMaxBots: Math.max(0, Math.floor(g('endMaxBots'))),
-    endTargetScore: Math.max(0, g('endTargetScore')),
-    endStagnation: Math.max(0, Math.floor(g('endStagnation'))),
-    batchSize: Math.max(1, Math.floor(g('batchSize'))),
+    algorithmId: algoSelect.value || currentAlgo.id,
+    shared: pickShared(sharedRaw),
+    algoParams,
   }
 }
 
-function updateSpaceHint(): void {
-  const p = readParams()
-  const shape = defaultShape(INPUT_SIZE, OUTPUT_SIZE, p.hidden1, p.hidden2)
-  const glen = genomeLength(shape)
-  const bytes = estimateStorageBytes(glen, p.maxBots)
-  spaceHint.textContent = `~${formatBytes(glen * 4)} per bot (${glen} weights). Cap ${p.maxBots} bots: ~${formatBytes(bytes)}. Prune kicks in above the cap.`
+function writeRunConfig(config: RunConfig): void {
+  const algo = getAlgorithm(config.algorithmId)
+  algoSelect.value = algo.id
+  const values = { ...config.shared, ...config.algoParams }
+  rebuildParamForm(algo, values)
 }
 
-for (const f of Object.values(fields)) {
-  f.querySelector('input')!.addEventListener('input', updateSpaceHint)
+function updateSpaceHint(): void {
+  const cfg = readRunConfig()
+  const shape = defaultShape(INPUT_SIZE, OUTPUT_SIZE, cfg.shared.hidden1, cfg.shared.hidden2)
+  const glen = genomeLength(shape)
+  const bytes = estimateStorageBytes(glen, cfg.shared.maxBots)
+  spaceHint.textContent = `~${formatBytes(glen * 4)} per bot (${glen} weights). Cap ${cfg.shared.maxBots} bots: ~${formatBytes(bytes)}. Prune kicks in above the cap.`
 }
-updateSpaceHint()
+
+algoSelect.addEventListener('change', () => {
+  const algo = getAlgorithm(algoSelect.value)
+  const prev = readRunConfig()
+  rebuildParamForm(algo, { ...prev.shared, ...algo.defaultParams() })
+})
+
+autoBtn.addEventListener('click', () => {
+  const target = Math.max(0, Number((targetLabel.querySelector('input') as HTMLInputElement).value) || 0)
+  const machine = machineSelect.value as MachineChoice
+  const result = autoConfigure(target, machine, hardwareHints())
+  writeRunConfig(result)
+  appendLog(
+    `Auto: ${result.machine}/${result.targetBand} → ${getAlgorithm(result.algorithmId).label} (target ${result.targetScore})`,
+  )
+})
+
+rebuildParamForm(currentAlgo)
 
 function pushConsoleLine(line: string): void {
   consoleLines.push(line)
@@ -396,15 +493,19 @@ function mergeTopBots(current: BotRow[], incoming: BotRow[], cap: number): BotRo
     .slice(0, cap)
 }
 
-function sortValue(bot: BotRow, key: SortKey): number {
+function sortValue(bot: BotRow, key: string): number {
   if (key === 'id') return bot.id
   if (key === 'fitness') return bot.fitness
-  if (key === 'parentA') return bot.parentA ?? -1
-  if (key === 'parentB') return bot.parentB ?? -1
-  if (bot.gameScores.length === 0) return -1
-  let sum = 0
-  for (const s of bot.gameScores) sum += s
-  return sum / bot.gameScores.length
+  if (key === 'games') {
+    if (bot.gameScores.length === 0) return -1
+    let sum = 0
+    for (const s of bot.gameScores) sum += s
+    return sum / bot.gameScores.length
+  }
+  const raw = bot.cells[key]
+  if (raw === undefined || raw === '-') return -1
+  const n = Number(raw)
+  return Number.isFinite(n) ? n : -1
 }
 
 function updateSortHeaders(): void {
@@ -420,18 +521,20 @@ function updateSortHeaders(): void {
 function renderTable(): void {
   const sorted = tableRows.slice().sort((a, b) => {
     const d = (sortValue(a, sortKey) - sortValue(b, sortKey)) * sortDir
-    return d !== 0 ? d : (b.id - a.id)
+    return d !== 0 ? d : b.id - a.id
   })
   tbody.replaceChildren(
-    ...sorted.map((bot) =>
-      el('tr', {}, [
+    ...sorted.map((bot) => {
+      const cells: HTMLElement[] = [
         el('td', {}, [String(bot.id)]),
         el('td', {}, [bot.fitness.toFixed(1)]),
-        el('td', {}, [bot.parentA === null ? '-' : String(bot.parentA)]),
-        el('td', {}, [bot.parentB === null ? '-' : String(bot.parentB)]),
-        el('td', {}, [bot.gameScores.map((x) => x.toFixed(0)).join(', ')]),
-      ]),
-    ),
+      ]
+      for (const col of currentAlgo.tableColumns) {
+        cells.push(el('td', {}, [bot.cells[col.key] ?? '-']))
+      }
+      cells.push(el('td', {}, [bot.gameScores.map((x) => x.toFixed(0)).join(', ')]))
+      return el('tr', {}, cells)
+    }),
   )
   updateSortHeaders()
 }
@@ -447,8 +550,39 @@ function clearUiBuffer(): void {
   pendingStats = null
 }
 
+function botToRow(bot: {
+  id: number
+  fitness: number
+  gameScores: number[]
+  parentA: number | null
+  parentB: number | null
+  meta?: Record<string, string | number | null>
+}): BotRow {
+  const cells: Record<string, string> = {}
+  for (const col of currentAlgo.tableColumns) {
+    cells[col.key] = currentAlgo.cellValue(
+      {
+        id: bot.id,
+        fitness: bot.fitness,
+        gameScores: bot.gameScores,
+        parentA: bot.parentA,
+        parentB: bot.parentB,
+        genome: new Float32Array(0),
+        meta: bot.meta ?? {},
+      },
+      col.key,
+    )
+  }
+  return {
+    id: bot.id,
+    fitness: bot.fitness,
+    gameScores: bot.gameScores,
+    cells,
+  }
+}
+
 function refreshScoresheet(force = false): void {
-  const bestId = orch.pop.bestId
+  const bestId = orch.archive.bestId
   if (bestId === 0) {
     if (sheetBestId !== 0 || force) {
       sheetBestId = 0
@@ -459,14 +593,14 @@ function refreshScoresheet(force = false): void {
   if (!force && isSheetCollapsed()) return
   if (!force && bestId === sheetBestId) return
 
-  const bot = orch.pop.getBot(bestId)
+  const bot = orch.archive.getBot(bestId)
   if (!bot) {
     renderScoresheet(scoresheetHost, null)
     sheetBestId = 0
     return
   }
 
-  const replay = replayBotGames(bot, orch.pop.shape, SCORESHEET_GAME_COLS)
+  const replay = replayBotGames(bot, orch.archive.shape, SCORESHEET_GAME_COLS)
   if (!replay.matched) {
     appendLog(`Scoresheet replay mismatch for bot #${bestId} (seed/checkpoint drift?)`)
   }
@@ -513,7 +647,7 @@ function flushCharts(): void {
   if (pendingStats) {
     applyStats(pendingStats)
     pendingStats = null
-  } else if (!isSheetCollapsed() && orch.pop.bestId !== sheetBestId) {
+  } else if (!isSheetCollapsed() && orch.archive.bestId !== sheetBestId) {
     refreshScoresheet(true)
   }
 }
@@ -534,7 +668,7 @@ function stopFlushTimer(): void {
   }
 }
 
-function setSort(key: SortKey): void {
+function setSort(key: string): void {
   if (sortKey === key) sortDir = sortDir < 0 ? 1 : -1
   else {
     sortKey = key
@@ -542,8 +676,6 @@ function setSort(key: SortKey): void {
   }
   renderTable()
 }
-
-updateSortHeaders()
 
 function wireOrch(): void {
   unsub?.()
@@ -554,13 +686,7 @@ function wireOrch(): void {
       scheduleConsoleFlush()
     }
     if (e.type === 'bot') {
-      pendingBots.push({
-        id: e.bot.id,
-        fitness: e.bot.fitness,
-        parentA: e.bot.parentA,
-        parentB: e.bot.parentB,
-        gameScores: e.bot.gameScores,
-      })
+      pendingBots.push(botToRow(e.bot))
     }
     if (e.type === 'stats') {
       pendingStats = {
@@ -589,17 +715,21 @@ function wireOrch(): void {
 }
 
 function setFormDisabled(disabled: boolean): void {
-  for (const f of Object.values(fields)) {
-    ;(f.querySelector('input') as HTMLInputElement).disabled = disabled
-  }
+  algoSelect.disabled = disabled
+  machineSelect.disabled = disabled
+  autoBtn.disabled = disabled
+  ;(targetLabel.querySelector('input') as HTMLInputElement).disabled = disabled
+  for (const input of fieldInputs.values()) input.disabled = disabled
 }
 
 wireOrch()
 
 runBtn.addEventListener('click', () => {
-  const p = readParams()
-  if (orch.pop.bots.length === 0) {
-    orch.configure(p)
+  const cfg = readRunConfig()
+  if (orch.archive.bots.length === 0) {
+    orch.configure(cfg)
+    currentAlgo = orch.algorithm
+    rebuildTableHeader()
     charts.reset()
     clearTableRows()
     clearUiBuffer()
@@ -616,7 +746,10 @@ resetBtn.addEventListener('click', () => {
   orch.pause()
   stopFlushTimer()
   clearUiBuffer()
-  orch = new Orchestrator(readParams())
+  const cfg = readRunConfig()
+  orch = new Orchestrator(cfg)
+  currentAlgo = orch.algorithm
+  rebuildTableHeader()
   wireOrch()
   charts.reset()
   clearTableRows()
@@ -634,11 +767,11 @@ resetBtn.addEventListener('click', () => {
 })
 
 saveBtn.addEventListener('click', () => {
-  void saveCheckpoint(orch.pop.serializeMeta()).then(() => appendLog('Saved checkpoint to IndexedDB.'))
+  void saveCheckpoint(orch.serialize()).then(() => appendLog('Saved checkpoint to IndexedDB.'))
 })
 
 loadBtn.addEventListener('click', () => {
-  void loadCheckpoint<ReturnType<typeof orch.pop.serializeMeta>>().then((data) => {
+  void loadCheckpoint<Record<string, unknown>>().then((data) => {
     if (!data) {
       appendLog('No checkpoint found.')
       return
@@ -646,28 +779,34 @@ loadBtn.addEventListener('click', () => {
     orch.pause()
     stopFlushTimer()
     clearUiBuffer()
-    orch = new Orchestrator(DEFAULT_PARAMS)
-    orch.pop.loadSerialized(data as Parameters<typeof orch.pop.loadSerialized>[0])
+    orch = new Orchestrator()
+    try {
+      orch.loadSerialized(data)
+    } catch (err) {
+      appendLog(`Load failed: ${err instanceof Error ? err.message : String(err)}`)
+      return
+    }
+    writeRunConfig({
+      algorithmId: orch.algorithm.id,
+      shared: orch.shared,
+      algoParams: orch.algoParams,
+    })
+    currentAlgo = orch.algorithm
+    rebuildTableHeader()
     wireOrch()
     charts.reset()
-    const loaded: BotRow[] = orch.pop.bots.map((b) => ({
-      id: b.id,
-      fitness: b.fitness,
-      parentA: b.parentA,
-      parentB: b.parentB,
-      gameScores: b.gameScores,
-    }))
+    const loaded = orch.archive.bots.map((b) => botToRow(b))
     if (loaded.length > 0) {
       charts.addBatch(loaded.map((b) => ({ id: b.id, fitness: b.fitness })))
     }
     tableRows = mergeTopBots([], loaded, TABLE_TOP_N)
     renderTable()
-    appendLog(`Loaded ${orch.pop.bots.length} bots from IndexedDB.`)
+    appendLog(`Loaded ${orch.archive.bots.length} bots (${orch.algorithm.label}).`)
     applyStats({
-      created: orch.pop.nextId - 1,
-      best: orch.pop.bestFitness,
-      bestId: orch.pop.bestId,
-      popSize: orch.pop.bots.length,
+      created: orch.archive.nextId - 1,
+      best: orch.archive.bestFitness,
+      bestId: orch.archive.bestId,
+      popSize: orch.archive.bots.length,
     })
     sheetBestId = -1
     refreshScoresheet(true)
@@ -675,7 +814,7 @@ loadBtn.addEventListener('click', () => {
 })
 
 exportBtn.addEventListener('click', () => {
-  downloadJson(`dicelab-bots-${Date.now()}.json`, orch.pop.serializeMeta())
+  downloadJson(`dicelab-bots-${Date.now()}.json`, orch.serialize())
   appendLog('Exported JSON download.')
 })
 
