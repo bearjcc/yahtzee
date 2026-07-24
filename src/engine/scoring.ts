@@ -188,24 +188,38 @@ export function totalScore(state: GameState): number {
   return t
 }
 
-export function applyScore(state: GameState, category: Category): GameState {
-  let bonuses = state.yahtzeeBonuses
+export function applyScoreMut(state: GameState, category: Category): void {
   if (isYahtzee(state.dice) && state.scorecard.yahtzee === YAHTZEE_SCORE) {
-    bonuses += 1
+    state.yahtzeeBonuses += 1
   }
 
-  const scorecard = { ...state.scorecard }
-  scorecard[category] = scoreForCategory(state, category)
+  state.scorecard[category] = scoreForCategory(state, category)
 
-  const filled = CATEGORIES.every((c) => scorecard[c] !== null)
-  return {
+  let filled = true
+  for (const c of CATEGORIES) {
+    if (state.scorecard[c] === null) {
+      filled = false
+      break
+    }
+  }
+  state.turn += 1
+  state.gameOver = filled
+  state.rollsRemaining = 3
+  state.held[0] = false
+  state.held[1] = false
+  state.held[2] = false
+  state.held[3] = false
+  state.held[4] = false
+  state.hasRolled = false
+}
+
+export function applyScore(state: GameState, category: Category): GameState {
+  const next: GameState = {
     ...state,
-    scorecard,
-    yahtzeeBonuses: bonuses,
-    turn: state.turn + 1,
-    gameOver: filled,
-    rollsRemaining: 3,
-    held: [false, false, false, false, false],
-    hasRolled: false,
+    dice: state.dice.slice(),
+    held: state.held.slice(),
+    scorecard: { ...state.scorecard },
   }
+  applyScoreMut(next, category)
+  return next
 }

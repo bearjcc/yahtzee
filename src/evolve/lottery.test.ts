@@ -20,4 +20,19 @@ describe('lottery', () => {
     }
     expect(counts.get(2)!).toBeGreaterThan(counts.get(1)! * 10)
   })
+
+  it('removeId drops tickets and keeps draw working', () => {
+    const lot = new Lottery(1)
+    lot.add(1, 10)
+    lot.add(2, 20)
+    lot.add(3, 30)
+    expect(lot.removeId(2)).toBe(true)
+    expect(lot.size).toBe(2)
+    expect(lot.totalTickets).toBeCloseTo(40)
+    const rng = mulberry32(3)
+    for (let i = 0; i < 100; i++) {
+      const id = lot.draw(rng)
+      expect(id === 1 || id === 3).toBe(true)
+    }
+  })
 })

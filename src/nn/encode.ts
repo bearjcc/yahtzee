@@ -13,8 +13,7 @@ export const INPUT_SIZE = 45
 /** hold[5] + scoreNow[1] + category[13] */
 export const OUTPUT_SIZE = 19
 
-export function encodeState(state: GameState): Float32Array {
-  const v = new Float32Array(INPUT_SIZE)
+export function encodeStateInto(state: GameState, v: Float32Array): void {
   let i = 0
 
   for (let d = 0; d < 5; d++) v[i++] = state.dice[d]! / 6
@@ -43,11 +42,14 @@ export function encodeState(state: GameState): Float32Array {
   v[i++] = Math.min(state.yahtzeeBonuses, 13) / 13
   v[i++] = state.turn / 13
 
-  // pad / assert
   if (i !== INPUT_SIZE) {
-    // keep unused UPPER_SECTION reference for future features
     void UPPER_SECTION
     throw new Error(`encodeState length mismatch: ${i} !== ${INPUT_SIZE}`)
   }
+}
+
+export function encodeState(state: GameState): Float32Array {
+  const v = new Float32Array(INPUT_SIZE)
+  encodeStateInto(state, v)
   return v
 }

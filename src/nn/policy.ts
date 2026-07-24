@@ -4,8 +4,8 @@ import {
   type Decision,
   type GameState,
 } from '../engine/index.ts'
-import { encodeState, OUTPUT_SIZE } from './encode.ts'
-import { forward, type NetShape } from './network.ts'
+import { encodeStateInto, OUTPUT_SIZE } from './encode.ts'
+import { createScratch, forwardInto, type ForwardScratch, type NetShape } from './network.ts'
 
 function argmaxMasked(logits: Float32Array, offset: number, mask: boolean[]): number {
   let best = -1
@@ -21,9 +21,18 @@ function argmaxMasked(logits: Float32Array, offset: number, mask: boolean[]): nu
   return best < 0 ? 0 : best
 }
 
-export function decide(state: GameState, genome: Float32Array, shape: NetShape): Decision {
-  const input = encodeState(state)
-  const out = forward(genome, shape, input)
+const categoryMask = new Array<boolean>(CATEGORIES.length).fill(false)
+const categoryIndex = new Map<string, number>(CATEGORIES.map((c, i) => [c, i]))
+
+export function decide(
+  state: GameState,
+  genome: Float32Array,
+  shape: NetShape,
+  scratch?: ForwardScratch,
+): Decision {
+  const buf = scratch ?? createScratch(shape)
+  encodeStateInto(state, buf.input)
+  const out = forwardInto(genome, shape, buf.input, buf)
   if (out.length !== OUTPUT_SIZE) throw new Error('bad output size')
 
   const held = [
@@ -36,8 +45,9 @@ export function decide(state: GameState, genome: Float32Array, shape: NetShape):
   const scoreNow = state.rollsRemaining > 0 && out[5]! > 0
 
   const legal = openCategories(state)
-  const mask = CATEGORIES.map((c) => legal.includes(c))
-  const catIdx = argmaxMasked(out, 6, mask)
+  for (let i = 0; i < CATEGORIES.length; i++) categoryMask[i] = false
+  for (const c of legal) categoryMask[categoryIndex.get(c)!] = true
+  const catIdx = argmaxMasked(out, 6, categoryMask)
   const category = CATEGORIES[catIdx]!
 
   return { scoreNow, held, category }

@@ -252,7 +252,6 @@ body {
   width: 100%;
   min-width: 0;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  align-items: end;
   gap: 6px 8px;
 }
 

@@ -26,12 +26,18 @@ Chart.register(
   Filler,
 )
 
+const HIST_BUCKET = 50
+const MAX_LINE_POINTS = 400
+
 export class DashboardCharts {
   private line: Chart
   private hist: Chart
   private ids: number[] = []
   private scores: number[] = []
   private bests: number[] = []
+  private histCounts = new Map<number, number>()
+  private histMaxBucket = 0
+  private bestSoFar = -Infinity
 
   constructor(lineCanvas: HTMLCanvasElement, histCanvas: HTMLCanvasElement) {
     const lineCfg: ChartConfiguration<'line'> = {
@@ -91,7 +97,7 @@ export class DashboardCharts {
         animation: false,
         plugins: { legend: { display: false } },
         scales: {
-          x: { title: { display: true, text: 'Score bucket (25 pts)' } },
+          x: { title: { display: true, text: `Score bucket (${HIST_BUCKET} pts)` } },
           y: { title: { display: true, text: 'Bots' }, beginAtZero: true },
         },
       },
@@ -108,52 +114,67 @@ export class DashboardCharts {
     this.ids = []
     this.scores = []
     this.bests = []
+    this.histCounts.clear()
+    this.histMaxBucket = 0
+    this.bestSoFar = -Infinity
     this.line.data.labels = []
     this.line.data.datasets[0]!.data = []
     this.line.data.datasets[1]!.data = []
     this.line.update()
-    this.rebuildHist()
+    this.applyHist()
   }
 
-  addBot(id: number, fitness: number): void {
-    this.ids.push(id)
-    this.scores.push(fitness)
-    const best = this.bests.length
-      ? Math.max(this.bests[this.bests.length - 1]!, fitness)
-      : fitness
-    this.bests.push(best)
+  /** One line point (mean fitness / last id); hist counts every sample. */
+  addBatch(samples: { id: number; fitness: number }[]): void {
+    if (samples.length === 0) return
 
-    // downsample display if huge
-    const step = Math.max(1, Math.floor(this.ids.length / 800))
-    const labels: number[] = []
-    const fit: number[] = []
-    const bst: number[] = []
-    for (let i = 0; i < this.ids.length; i += step) {
-      labels.push(this.ids[i]!)
-      fit.push(this.scores[i]!)
-      bst.push(this.bests[i]!)
+    let sum = 0
+    let maxFit = -Infinity
+    let lastId = samples[0]!.id
+    for (const s of samples) {
+      sum += s.fitness
+      if (s.fitness > maxFit) maxFit = s.fitness
+      lastId = s.id
+      const b = Math.floor(s.fitness / HIST_BUCKET) * HIST_BUCKET
+      this.histCounts.set(b, (this.histCounts.get(b) ?? 0) + 1)
+      if (b > this.histMaxBucket) this.histMaxBucket = b
     }
-    this.line.data.labels = labels
-    this.line.data.datasets[0]!.data = fit
-    this.line.data.datasets[1]!.data = bst
+
+    const mean = sum / samples.length
+    if (maxFit > this.bestSoFar) this.bestSoFar = maxFit
+
+    this.ids.push(lastId)
+    this.scores.push(mean)
+    this.bests.push(this.bestSoFar)
+
+    if (this.ids.length > MAX_LINE_POINTS) {
+      const step = Math.ceil(this.ids.length / MAX_LINE_POINTS)
+      const nIds: number[] = []
+      const nScores: number[] = []
+      const nBests: number[] = []
+      for (let i = 0; i < this.ids.length; i += step) {
+        nIds.push(this.ids[i]!)
+        nScores.push(this.scores[i]!)
+        nBests.push(this.bests[i]!)
+      }
+      this.ids = nIds
+      this.scores = nScores
+      this.bests = nBests
+    }
+
+    this.line.data.labels = this.ids
+    this.line.data.datasets[0]!.data = this.scores
+    this.line.data.datasets[1]!.data = this.bests
     this.line.update('none')
-    this.rebuildHist()
+    this.applyHist()
   }
 
-  private rebuildHist(): void {
-    const bucket = 25
-    const counts = new Map<number, number>()
-    let maxBucket = 0
-    for (const s of this.scores) {
-      const b = Math.floor(s / bucket) * bucket
-      counts.set(b, (counts.get(b) ?? 0) + 1)
-      if (b > maxBucket) maxBucket = b
-    }
+  private applyHist(): void {
     const labels: string[] = []
     const data: number[] = []
-    for (let b = 0; b <= maxBucket; b += bucket) {
-      labels.push(`${b}-${b + bucket - 1}`)
-      data.push(counts.get(b) ?? 0)
+    for (let b = 0; b <= this.histMaxBucket; b += HIST_BUCKET) {
+      labels.push(`${b}-${b + HIST_BUCKET - 1}`)
+      data.push(this.histCounts.get(b) ?? 0)
     }
     this.hist.data.labels = labels
     this.hist.data.datasets[0]!.data = data

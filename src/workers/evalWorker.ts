@@ -16,24 +16,21 @@ export type WorkerResponse = {
   fitness: number
   gameScores: number[]
   genome: Float32Array
-  parentA: number | null
-  parentB: number | null
 }
 
 const ctx = self as unknown as {
   onmessage: ((ev: MessageEvent<WorkerRequest>) => void) | null
-  postMessage: (msg: WorkerResponse) => void
+  postMessage: (msg: WorkerResponse, transfer?: Transferable[]) => void
 }
 
 ctx.onmessage = (ev: MessageEvent<WorkerRequest>) => {
   const msg = ev.data
   const result = evaluateGenome(msg.genome, msg.shape, msg.gamesPerFitness, msg.baseSeed)
-  ctx.postMessage({
+  const res: WorkerResponse = {
     jobId: msg.jobId,
     fitness: result.fitness,
     gameScores: result.gameScores,
     genome: msg.genome,
-    parentA: msg.parentA,
-    parentB: msg.parentB,
-  })
+  }
+  ctx.postMessage(res, [msg.genome.buffer])
 }

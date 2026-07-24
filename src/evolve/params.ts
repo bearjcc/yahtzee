@@ -28,7 +28,7 @@ export const DEFAULT_PARAMS: EvolveParams = {
   endMaxBots: 0,
   endTargetScore: 700,
   endStagnation: 2000,
-  batchSize: 8,
+  batchSize: 16,
 }
 
 export const BYTES_PER_FLOAT = 4

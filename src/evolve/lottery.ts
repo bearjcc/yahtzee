@@ -42,7 +42,21 @@ export class Lottery {
     this.cumulative.push(this.total)
   }
 
+  removeId(id: number): boolean {
+    const i = this.ids.indexOf(id)
+    if (i < 0) return false
+    this.ids.splice(i, 1)
+    this.tickets.splice(i, 1)
+    this.rebuildCumulative()
+    return true
+  }
+
   removeIds(remove: Set<number>): void {
+    if (remove.size === 0) return
+    if (remove.size === 1) {
+      for (const id of remove) this.removeId(id)
+      return
+    }
     const nextIds: number[] = []
     const nextTickets: number[] = []
     for (let i = 0; i < this.ids.length; i++) {

@@ -36,6 +36,10 @@ const SORT_COLUMNS: { key: SortKey; label: string }[] = [
   { key: 'games', label: 'Games' },
 ]
 
+const UI_FLUSH_MS = 5000
+const CONSOLE_MAX_LINES = 30
+const TABLE_TOP_N = 50
+
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   attrs: Record<string, string> = {},
@@ -101,7 +105,7 @@ const about = el('details', { class: 'about' }, [
       'Parents are drawn by lottery: tickets = score^k (k between 1 and 2). Higher scores win more tickets, but nobody is culled until you hit max bots. Old bots stay in the pool, so ticket totals only grow.',
     ]),
     el('p', {}, [
-      'Everything runs in your browser (web workers). The console and charts refresh as each bot finishes. Save a checkpoint to IndexedDB, or export JSON.',
+      'Everything runs in your browser (web workers). Charts, table, and console refresh every few seconds so eval stays fast. Save a checkpoint to IndexedDB, or export JSON.',
     ]),
     el('p', { class: 'about-note' }, [
       'Not affiliated with Hasbro, General Mills, or any brand. Public-domain game mechanics; original UI.',
@@ -206,11 +210,16 @@ tableWrap.append(table)
 let tableRows: BotRow[] = []
 let sortKey: SortKey = 'fitness'
 let sortDir: 1 | -1 = -1
+let consoleLines: string[] = ['Ready.']
+const pendingBots: BotRow[] = []
+const pendingLogs: string[] = []
+let pendingStats: { created: number; best: number; bestId: number; popSize: number } | null = null
+let flushTimer: ReturnType<typeof setInterval> | null = null
 
 const fitnessPane = makePane('fitness', 'Fitness', lineBox)
 const histPane = makePane('hist', 'Score buckets', histBox)
 const consolePane = makePane('console', 'Terminal', consoleEl)
-const tablePane = makePane('table', 'Bots', tableWrap)
+const tablePane = makePane('table', 'Top 50', tableWrap)
 workspace.append(fitnessPane.pane, histPane.pane, consolePane.pane, tablePane.pane)
 
 const paneMaxBtns: Record<PaneId, HTMLButtonElement> = {
@@ -301,9 +310,28 @@ for (const f of Object.values(fields)) {
 }
 updateSpaceHint()
 
-function appendLog(line: string): void {
-  consoleEl.textContent += line + '\n'
+function pushConsoleLine(line: string): void {
+  consoleLines.push(line)
+  while (consoleLines.length > CONSOLE_MAX_LINES) consoleLines.shift()
+}
+
+function renderConsole(): void {
+  consoleEl.textContent = consoleLines.join('\n') + '\n'
   consoleEl.scrollTop = consoleEl.scrollHeight
+}
+
+function appendLog(line: string): void {
+  pushConsoleLine(line)
+  renderConsole()
+}
+
+function mergeTopBots(current: BotRow[], incoming: BotRow[], cap: number): BotRow[] {
+  const byId = new Map<number, BotRow>()
+  for (const b of current) byId.set(b.id, b)
+  for (const b of incoming) byId.set(b.id, b)
+  return [...byId.values()]
+    .sort((a, b) => b.fitness - a.fitness || b.id - a.id)
+    .slice(0, cap)
 }
 
 function sortValue(bot: BotRow, key: SortKey): number {
@@ -351,10 +379,46 @@ function clearTableRows(): void {
   renderTable()
 }
 
-function addTableRow(bot: BotRow): void {
-  tableRows.push(bot)
-  if (tableRows.length > 500) tableRows = tableRows.slice(-500)
-  renderTable()
+function clearUiBuffer(): void {
+  pendingBots.length = 0
+  pendingLogs.length = 0
+  pendingStats = null
+}
+
+function applyStats(s: { created: number; best: number; bestId: number; popSize: number }): void {
+  ;(document.getElementById('statCreated') as HTMLElement).textContent = String(s.created)
+  ;(document.getElementById('statPop') as HTMLElement).textContent = String(s.popSize)
+  ;(document.getElementById('statBest') as HTMLElement).textContent =
+    `${s.best.toFixed(1)} (#${s.bestId})`
+}
+
+function flushUi(): void {
+  if (pendingBots.length > 0) {
+    charts.addBatch(pendingBots.map((b) => ({ id: b.id, fitness: b.fitness })))
+    tableRows = mergeTopBots(tableRows, pendingBots, TABLE_TOP_N)
+    pendingBots.length = 0
+    renderTable()
+  }
+  if (pendingLogs.length > 0) {
+    for (const line of pendingLogs) pushConsoleLine(line)
+    pendingLogs.length = 0
+    renderConsole()
+  }
+  if (pendingStats) {
+    applyStats(pendingStats)
+    pendingStats = null
+  }
+}
+
+function startFlushTimer(): void {
+  if (flushTimer !== null) return
+  flushTimer = setInterval(flushUi, UI_FLUSH_MS)
+}
+
+function stopFlushTimer(): void {
+  if (flushTimer === null) return
+  clearInterval(flushTimer)
+  flushTimer = null
 }
 
 function setSort(key: SortKey): void {
@@ -371,16 +435,26 @@ updateSortHeaders()
 function wireOrch(): void {
   unsub?.()
   unsub = orch.on((e) => {
-    if (e.type === 'log') appendLog(e.line)
+    if (e.type === 'log') {
+      pendingLogs.push(e.line)
+      while (pendingLogs.length > CONSOLE_MAX_LINES) pendingLogs.shift()
+    }
     if (e.type === 'bot') {
-      charts.addBot(e.bot.id, e.bot.fitness)
-      addTableRow(e.bot)
+      pendingBots.push({
+        id: e.bot.id,
+        fitness: e.bot.fitness,
+        parentA: e.bot.parentA,
+        parentB: e.bot.parentB,
+        gameScores: e.bot.gameScores,
+      })
     }
     if (e.type === 'stats') {
-      ;(document.getElementById('statCreated') as HTMLElement).textContent = String(e.created)
-      ;(document.getElementById('statPop') as HTMLElement).textContent = String(e.popSize)
-      ;(document.getElementById('statBest') as HTMLElement).textContent =
-        `${e.best.toFixed(1)} (#${e.bestId})`
+      pendingStats = {
+        created: e.created,
+        best: e.best,
+        bestId: e.bestId,
+        popSize: e.popSize,
+      }
     }
     if (e.type === 'status') {
       ;(document.getElementById('statStatus') as HTMLElement).textContent = e.running
@@ -389,6 +463,12 @@ function wireOrch(): void {
       runBtn.disabled = e.running
       pauseBtn.disabled = !e.running
       setFormDisabled(e.running)
+      if (e.running) {
+        startFlushTimer()
+      } else {
+        flushUi()
+        stopFlushTimer()
+      }
     }
   })
 }
@@ -407,7 +487,9 @@ runBtn.addEventListener('click', () => {
     orch.configure(p)
     charts.reset()
     clearTableRows()
-    consoleEl.textContent = ''
+    clearUiBuffer()
+    consoleLines = []
+    renderConsole()
   }
   setSetupCollapsed(true)
   void orch.start()
@@ -417,11 +499,14 @@ pauseBtn.addEventListener('click', () => orch.pause())
 
 resetBtn.addEventListener('click', () => {
   orch.pause()
+  stopFlushTimer()
+  clearUiBuffer()
   orch = new Orchestrator(readParams())
   wireOrch()
   charts.reset()
   clearTableRows()
-  consoleEl.textContent = 'Reset.\n'
+  consoleLines = ['Reset.']
+  renderConsole()
   ;(document.getElementById('statCreated') as HTMLElement).textContent = '0'
   ;(document.getElementById('statPop') as HTMLElement).textContent = '0'
   ;(document.getElementById('statBest') as HTMLElement).textContent = '-'
@@ -442,22 +527,31 @@ loadBtn.addEventListener('click', () => {
       return
     }
     orch.pause()
+    stopFlushTimer()
+    clearUiBuffer()
     orch = new Orchestrator(DEFAULT_PARAMS)
     orch.pop.loadSerialized(data as Parameters<typeof orch.pop.loadSerialized>[0])
     wireOrch()
     charts.reset()
-    tableRows = []
-    for (const b of orch.pop.bots) {
-      charts.addBot(b.id, b.fitness)
-      tableRows.push(b)
+    const loaded: BotRow[] = orch.pop.bots.map((b) => ({
+      id: b.id,
+      fitness: b.fitness,
+      parentA: b.parentA,
+      parentB: b.parentB,
+      gameScores: b.gameScores,
+    }))
+    if (loaded.length > 0) {
+      charts.addBatch(loaded.map((b) => ({ id: b.id, fitness: b.fitness })))
     }
-    if (tableRows.length > 500) tableRows = tableRows.slice(-500)
+    tableRows = mergeTopBots([], loaded, TABLE_TOP_N)
     renderTable()
     appendLog(`Loaded ${orch.pop.bots.length} bots from IndexedDB.`)
-    ;(document.getElementById('statCreated') as HTMLElement).textContent = String(orch.pop.nextId - 1)
-    ;(document.getElementById('statPop') as HTMLElement).textContent = String(orch.pop.bots.length)
-    ;(document.getElementById('statBest') as HTMLElement).textContent =
-      `${orch.pop.bestFitness.toFixed(1)} (#${orch.pop.bestId})`
+    applyStats({
+      created: orch.pop.nextId - 1,
+      best: orch.pop.bestFitness,
+      bestId: orch.pop.bestId,
+      popSize: orch.pop.bots.length,
+    })
   })
 })
 

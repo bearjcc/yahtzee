@@ -113,13 +113,25 @@ export class Population {
 
   pruneIfNeeded(): void {
     const max = this.params.maxBots
-    if (this.bots.length <= max) return
-    const sorted = [...this.bots].sort((a, b) => a.fitness - b.fitness)
-    const toRemove = sorted.slice(0, this.bots.length - max)
-    const removeIds = new Set(toRemove.map((b) => b.id))
-    this.bots = this.bots.filter((b) => !removeIds.has(b.id))
-    for (const id of removeIds) this.byId.delete(id)
-    this.lottery.removeIds(removeIds)
+    while (this.bots.length > max) {
+      let worstIdx = 0
+      let worstFit = this.bots[0]!.fitness
+      let worstId = this.bots[0]!.id
+      for (let i = 1; i < this.bots.length; i++) {
+        const b = this.bots[i]!
+        if (b.fitness < worstFit || (b.fitness === worstFit && b.id < worstId)) {
+          worstIdx = i
+          worstFit = b.fitness
+          worstId = b.id
+        }
+      }
+      const worst = this.bots[worstIdx]!
+      const last = this.bots.length - 1
+      this.bots[worstIdx] = this.bots[last]!
+      this.bots.pop()
+      this.byId.delete(worst.id)
+      this.lottery.removeId(worst.id)
+    }
   }
 
   shouldStop(): string | null {
