@@ -1,6 +1,14 @@
-import { mulberry32, playGameResult, type GameResult } from '../engine/index.ts'
-import { decide, type NetShape } from '../nn/index.ts'
+import { actFromEncode, type NetShape } from '../nn/index.ts'
+import { getGame } from '../games/registry.ts'
+import {
+  normalizeGameIds,
+  type EpisodeResult,
+  type GameId,
+  type YahtzeeEpisodeResult,
+} from '../games/types.ts'
 import type { BotRecord } from './archive.ts'
+import type { GameResult } from '../games/yahtzee/game.ts'
+import { mulberry32 } from '../engine/rng.ts'
 
 /** Legacy fallback when bot.gameSeeds is missing (pre-mixed-seed checkpoints). */
 export function evalBaseSeed(bot: Pick<BotRecord, 'id' | 'parentA'>): number {
@@ -26,27 +34,53 @@ export function resolveGameSeeds(
 
 export type ReplayResult = {
   games: GameResult[]
+  episodes: EpisodeResult[]
   /** True when every replayed total matches bot.gameScores for those games. */
   matched: boolean
 }
 
 /**
- * Replay the first `gameCount` fitness games for a bot (default: all stored scores).
+ * Replay fitness episodes for a bot.
+ * When `gameIds` includes Yahtzee, `games` holds Yahtzee GameResult rows for the scoresheet.
  */
 export function replayBotGames(
   bot: BotRecord,
   shape: NetShape,
   gameCount?: number,
+  gameIds: GameId[] = ['yahtzee'],
 ): ReplayResult {
-  const n = Math.min(gameCount ?? bot.gameScores.length, bot.gameScores.length)
-  const gameSeeds = resolveGameSeeds(bot, n)
-  const games: GameResult[] = []
+  const ids = normalizeGameIds(gameIds)
+  const perGame = Math.min(
+    gameCount ?? Math.floor(bot.gameScores.length / ids.length),
+    Math.floor(bot.gameScores.length / ids.length),
+  )
+  const totalEpisodes = perGame * ids.length
+  const gameSeeds = resolveGameSeeds(bot, totalEpisodes)
+  const episodes: EpisodeResult[] = []
+  const yahtzeeGames: GameResult[] = []
   let matched = true
-  for (let g = 0; g < n; g++) {
-    const rng = mulberry32(gameSeeds[g]!)
-    const result = playGameResult(rng, (state) => decide(state, bot.genome, shape))
-    games.push(result)
-    if (result.total !== bot.gameScores[g]) matched = false
+  let seedIdx = 0
+  let scoreIdx = 0
+
+  for (const id of ids) {
+    const game = getGame(id)
+    for (let g = 0; g < perGame; g++) {
+      const rng = mulberry32(gameSeeds[seedIdx++]!)
+      const result = game.playResult(rng, (encodeInto) =>
+        actFromEncode(encodeInto, bot.genome, shape),
+      )
+      episodes.push(result)
+      if (result.total !== bot.gameScores[scoreIdx]) matched = false
+      scoreIdx++
+      if (result.kind === 'yahtzee') {
+        const y = result as YahtzeeEpisodeResult
+        yahtzeeGames.push({
+          total: y.total,
+          scorecard: y.scorecard as GameResult['scorecard'],
+          yahtzeeBonuses: y.yahtzeeBonuses,
+        })
+      }
+    }
   }
-  return { games, matched }
+  return { games: yahtzeeGames, episodes, matched }
 }

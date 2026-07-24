@@ -1,9 +1,10 @@
-import { defaultShape, INPUT_SIZE, OUTPUT_SIZE } from '../nn/index.ts'
+import { DEFAULT_GAME_IDS, normalizeGameIds, type GameId } from '../games/types.ts'
+import { defaultShape, genomeLength, INPUT_SIZE, OUTPUT_SIZE } from '../nn/index.ts'
 import { WorkerPool } from '../workers/pool.ts'
 import { Archive, type BotRecord } from './archive.ts'
 import { getAlgorithm, DEFAULT_ALGORITHM_ID } from './algo/registry.ts'
 import type { Algorithm, RunConfig, TrainCandidate } from './algo/types.ts'
-import { buildGameSeeds, cryptoUnit } from './evaluate.ts'
+import { buildMultiGameSeeds, cryptoUnit } from './evaluate.ts'
 import {
   DEFAULT_PARAMS,
   DEFAULT_SHARED,
@@ -20,6 +21,21 @@ export type OrchEvent =
   | { type: 'status'; running: boolean; reason?: string }
   | { type: 'stats'; created: number; best: number; bestId: number; popSize: number }
 
+export type CheckpointV3 = {
+  version: 3
+  algorithmId: string
+  gameIds: GameId[]
+  shared: SharedParams
+  algoParams: Record<string, number>
+  algoState: unknown
+  nextId: number
+  bestFitness: number
+  bestId: number
+  botsSinceBestImprove: number
+  bots: ReturnType<Archive['serializeBots']>
+}
+
+/** @deprecated Migrated to CheckpointV3 on load. */
 export type CheckpointV2 = {
   version: 2
   algorithmId: string
@@ -42,6 +58,7 @@ export class Orchestrator {
   }
 
   algorithm: Algorithm
+  gameIds: GameId[]
   shared: SharedParams
   algoParams: Record<string, number>
 
@@ -55,6 +72,7 @@ export class Orchestrator {
     const run = normalizeConfig(config)
     this.shared = run.shared
     this.algoParams = run.algoParams
+    this.gameIds = run.gameIds
     this.algorithm = getAlgorithm(run.algorithmId)
     this.archive = new Archive(this.shared)
     this.algorithm.configure(this.shared, this.algoParams, this.archive.shape)
@@ -80,6 +98,7 @@ export class Orchestrator {
     const run = normalizeConfig(config)
     this.shared = run.shared
     this.algoParams = run.algoParams
+    this.gameIds = run.gameIds
     this.algorithm = getAlgorithm(run.algorithmId)
     this.archive.reset(this.shared)
     this.algorithm.configure(this.shared, this.algoParams, this.archive.shape)
@@ -98,7 +117,13 @@ export class Orchestrator {
     const out: number[][] = []
     for (let i = 0; i < batchSize; i++) {
       out.push(
-        buildGameSeeds(p.gamesPerFitness, p.sharedGameFraction, sharedBase, cryptoUnit),
+        buildMultiGameSeeds(
+          this.gameIds,
+          p.gamesPerFitness,
+          p.sharedGameFraction,
+          sharedBase,
+          cryptoUnit,
+        ),
       )
     }
     return out
@@ -111,7 +136,7 @@ export class Orchestrator {
     this.pool = new WorkerPool()
     this.emit({ type: 'status', running: true })
     this.log(
-      `Run start - algo ${this.algorithm.label}, workers ${this.pool.size}, seeds ${this.algorithm.seedCount()}`,
+      `Run start - games ${this.gameIds.join('+')}, algo ${this.algorithm.label}, workers ${this.pool.size}, seeds ${this.algorithm.seedCount()}`,
     )
 
     try {
@@ -158,10 +183,10 @@ export class Orchestrator {
       shape: this.archive.shape,
       gameSeeds: seedLists[i]!,
       fitnessStdPenalty: this.shared.fitnessStdPenalty,
+      gameIds: this.gameIds,
       parentA: c.parentA,
       parentB: c.parentB,
     }))
-    // Stash meta by job order; results sorted by jobId (1-based in pool, but we sort).
     const metas = candidates.map((c) => c.meta ?? {})
     const results = await this.pool!.evaluateBatch(jobs)
     results.sort((a, b) => a.jobId - b.jobId)
@@ -225,10 +250,11 @@ export class Orchestrator {
     })
   }
 
-  serialize(): CheckpointV2 {
+  serialize(): CheckpointV3 {
     return {
-      version: 2,
+      version: 3,
       algorithmId: this.algorithm.id,
+      gameIds: this.gameIds,
       shared: this.shared,
       algoParams: this.algoParams,
       algoState: this.algorithm.serialize(),
@@ -240,18 +266,26 @@ export class Orchestrator {
     }
   }
 
-  loadSerialized(data: CheckpointV2 | LegacyCheckpoint | Record<string, unknown>): void {
+  loadSerialized(data: CheckpointV3 | CheckpointV2 | LegacyCheckpoint | Record<string, unknown>): void {
     if (this.running) this.pause()
     const normalized = migrateCheckpoint(data)
     this.shared = normalized.shared
     this.algoParams = normalized.algoParams
+    this.gameIds = normalized.gameIds
     this.algorithm = getAlgorithm(normalized.algorithmId)
     this.archive.reset(this.shared)
     this.archive.nextId = normalized.nextId
     this.archive.bestFitness = normalized.bestFitness
     this.archive.bestId = normalized.bestId
     this.archive.botsSinceBestImprove = normalized.botsSinceBestImprove
-    this.archive.loadBots(normalized.bots)
+    const expectedLen = genomeLength(this.archive.shape)
+    const compatible = normalized.bots.filter((b) => b.genome.length === expectedLen)
+    this.archive.loadBots(compatible)
+    if (compatible.length !== normalized.bots.length) {
+      this.log(
+        `Dropped ${normalized.bots.length - compatible.length} bots with incompatible genome shape`,
+      )
+    }
     this.algorithm.configure(this.shared, this.algoParams, this.archive.shape)
     this.algorithm.restore(normalized.algoState, this.archive)
     this.batchSharedCounter = 0
@@ -278,31 +312,50 @@ type LegacyCheckpoint = {
 
 function isLegacyCheckpoint(data: unknown): data is LegacyCheckpoint {
   if (typeof data !== 'object' || data === null || !('params' in data)) return false
-  if ('version' in data && (data as { version?: number }).version === 2) return false
+  if ('version' in data) {
+    const v = (data as { version?: number }).version
+    if (v === 2 || v === 3) return false
+  }
   return true
 }
 
-function migrateCheckpoint(data: unknown): CheckpointV2 {
-  if (
-    typeof data === 'object' &&
-    data !== null &&
-    'version' in data &&
-    (data as { version?: number }).version === 2
-  ) {
-    const v2 = data as CheckpointV2
-    return {
-      ...v2,
-      shared: { ...DEFAULT_SHARED, ...v2.shared },
-      algoParams: { ...v2.algoParams },
-      algorithmId: v2.algorithmId || DEFAULT_ALGORITHM_ID,
+function migrateCheckpoint(data: unknown): CheckpointV3 {
+  if (typeof data === 'object' && data !== null && 'version' in data) {
+    const version = (data as { version?: number }).version
+    if (version === 3) {
+      const v3 = data as CheckpointV3
+      return {
+        ...v3,
+        gameIds: normalizeGameIds(v3.gameIds),
+        shared: { ...DEFAULT_SHARED, ...v3.shared },
+        algoParams: { ...v3.algoParams },
+        algorithmId: v3.algorithmId || DEFAULT_ALGORITHM_ID,
+      }
+    }
+    if (version === 2) {
+      const v2 = data as CheckpointV2
+      return {
+        version: 3,
+        algorithmId: v2.algorithmId || DEFAULT_ALGORITHM_ID,
+        gameIds: [...DEFAULT_GAME_IDS],
+        shared: { ...DEFAULT_SHARED, ...v2.shared },
+        algoParams: { ...v2.algoParams },
+        algoState: v2.algoState,
+        nextId: v2.nextId,
+        bestFitness: v2.bestFitness,
+        bestId: v2.bestId,
+        botsSinceBestImprove: v2.botsSinceBestImprove,
+        bots: v2.bots,
+      }
     }
   }
   if (isLegacyCheckpoint(data)) {
     const params = { ...DEFAULT_PARAMS, ...data.params }
     const lb = pickLeaderboard(params)
     return {
-      version: 2,
+      version: 3,
       algorithmId: DEFAULT_ALGORITHM_ID,
+      gameIds: [...DEFAULT_GAME_IDS],
       shared: pickShared(params),
       algoParams: leaderboardAsRecord(lb),
       algoState: { params: lb },
@@ -320,16 +373,18 @@ function normalizeConfig(config?: Partial<RunConfig> | EvolveParams): RunConfig 
   if (!config) {
     return {
       algorithmId: DEFAULT_ALGORITHM_ID,
+      gameIds: [...DEFAULT_GAME_IDS],
       shared: { ...DEFAULT_SHARED },
       algoParams: leaderboardAsRecord(pickLeaderboard(DEFAULT_PARAMS)),
     }
   }
-  if ('shared' in config || 'algorithmId' in config || 'algoParams' in config) {
+  if ('shared' in config || 'algorithmId' in config || 'algoParams' in config || 'gameIds' in config) {
     const c = config as Partial<RunConfig>
     const shared = { ...DEFAULT_SHARED, ...c.shared }
     defaultShape(INPUT_SIZE, OUTPUT_SIZE, shared.hidden1, shared.hidden2)
     return {
       algorithmId: c.algorithmId ?? DEFAULT_ALGORITHM_ID,
+      gameIds: normalizeGameIds(c.gameIds),
       shared,
       algoParams: { ...(c.algoParams ?? leaderboardAsRecord(pickLeaderboard(DEFAULT_PARAMS))) },
     }
@@ -337,6 +392,7 @@ function normalizeConfig(config?: Partial<RunConfig> | EvolveParams): RunConfig 
   const flat = { ...DEFAULT_PARAMS, ...(config as EvolveParams) }
   return {
     algorithmId: DEFAULT_ALGORITHM_ID,
+    gameIds: [...DEFAULT_GAME_IDS],
     shared: pickShared(flat),
     algoParams: leaderboardAsRecord(pickLeaderboard(flat)),
   }

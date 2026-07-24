@@ -5,4 +5,9 @@ export * from './evaluate.ts'
 export * from './archive.ts'
 export * from './replay.ts'
 export * from './algo/index.ts'
-export { Orchestrator, type CheckpointV2, type OrchEvent } from './orchestrator.ts'
+export {
+  Orchestrator,
+  type CheckpointV2,
+  type CheckpointV3,
+  type OrchEvent,
+} from './orchestrator.ts'

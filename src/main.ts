@@ -16,10 +16,16 @@ import {
   type RunConfig,
 } from './evolve/index.ts'
 import { Orchestrator } from './evolve/orchestrator.ts'
+import { getGame, listGames, normalizeGameIds, type GameId } from './games/index.ts'
 import { defaultShape, genomeLength, INPUT_SIZE, OUTPUT_SIZE } from './nn/index.ts'
 import { DashboardCharts } from './ui/charts.ts'
 import { iconBtn, icons } from './ui/icons.ts'
-import { renderScoresheet, SCORESHEET_GAME_COLS } from './ui/scoresheet.ts'
+import {
+  pylEpisodesFrom,
+  renderPylSheet,
+  renderScoresheet,
+  SCORESHEET_GAME_COLS,
+} from './ui/scoresheet.ts'
 import { downloadJson, loadCheckpoint, saveCheckpoint } from './store/idb.ts'
 
 type PaneId = 'fitness' | 'hist' | 'console' | 'table'
@@ -106,7 +112,7 @@ const hero = el('header', { class: 'hero' }, [
   el('div', { class: 'hero-copy' }, [
     el('h1', {}, ['DiceLab']),
     el('p', { class: 'tag' }, [
-      'Breed tiny nets that play Yahtzee. Twist the knobs, hit Run, watch the scores climb.',
+      'Breed tiny nets that play dice games. Pick Yahtzee, Farkle, and/or 6 Cubes, twist the knobs, hit Run.',
     ]),
   ]),
 ])
@@ -117,7 +123,7 @@ const about = el('details', { class: 'about' }, [
   el('summary', {}, ['How it works']),
   el('div', { class: 'about-body' }, [
     el('p', {}, [
-      'Each bot plays a batch of games. Fitness is mean score minus a small stdev penalty (less reward for one lucky spike). Half the games share a batch-wide seed suite (fair compare); the other half are private random seeds (limits overfitting).',
+      'Each bot plays a batch of games for every checked ruleset (Yahtzee sheet score; Farkle/6 Cubes use goal÷turns). Fitness is the mean of those episode scores minus a small stdev penalty. Half the episodes share a batch-wide seed suite (fair compare); the other half are private random seeds (limits overfitting).',
     ]),
     aboutAlgoP,
     el('p', {}, [
@@ -154,6 +160,8 @@ setupInner.append(el('h2', {}, ['Setup']))
 
 const algorithms = listAlgorithms()
 let currentAlgo: Algorithm = getAlgorithm(DEFAULT_ALGORITHM_ID)
+const games = listGames()
+const gameChecks = new Map<GameId, HTMLInputElement>()
 
 const algoLabel = el('label', { class: 'span2 setup-select-label' }, ['Algorithm'])
 const algoSelect = el('select', { id: 'algorithm', class: 'setup-select' })
@@ -162,6 +170,21 @@ for (const a of algorithms) {
 }
 algoSelect.value = DEFAULT_ALGORITHM_ID
 algoLabel.append(algoSelect)
+
+const gamesLabel = el('label', { class: 'span2 setup-select-label' }, ['Games'])
+const gamesBox = el('div', { class: 'game-checks', id: 'gameChecks' })
+for (const g of games) {
+  const input = el('input', {
+    type: 'checkbox',
+    value: g.id,
+    id: `game-${g.id}`,
+  }) as HTMLInputElement
+  if (g.id === 'yahtzee') input.checked = true
+  gameChecks.set(g.id, input)
+  const lab = el('label', { class: 'game-check', for: `game-${g.id}` }, [input, g.label])
+  gamesBox.append(lab)
+}
+gamesLabel.append(gamesBox)
 
 const autoGrid = el('div', { class: 'form-grid auto-grid' })
 const targetLabel = el('label', {}, [
@@ -192,7 +215,7 @@ autoGrid.append(targetLabel, machineLabel, autoBtnWrap)
 const form = el('div', { class: 'form-grid', id: 'paramForm' })
 const fieldInputs = new Map<string, HTMLInputElement>()
 
-setupInner.append(algoLabel, autoGrid, form)
+setupInner.append(algoLabel, gamesLabel, autoGrid, form)
 
 const spaceHint = el('p', { class: 'hint', id: 'spaceHint' }, [''])
 setupInner.append(spaceHint)
@@ -292,6 +315,7 @@ let sheetBestId = 0
 const charts = new DashboardCharts(lineCanvas, histCanvas)
 let orch = new Orchestrator({
   algorithmId: DEFAULT_ALGORITHM_ID,
+  gameIds: ['yahtzee'],
   shared: { ...DEFAULT_SHARED },
   algoParams: currentAlgo.defaultParams(),
 })
@@ -420,6 +444,24 @@ function clampField(field: ParamField, raw: number): number {
   return n
 }
 
+function readSelectedGameIds(): GameId[] {
+  const ids: GameId[] = []
+  for (const [id, input] of gameChecks) {
+    if (input.checked) ids.push(id)
+  }
+  return normalizeGameIds(ids)
+}
+
+function setSelectedGameIds(ids: GameId[]): void {
+  const set = new Set(normalizeGameIds(ids))
+  for (const [id, input] of gameChecks) {
+    input.checked = set.has(id)
+  }
+  if (![...gameChecks.values()].some((c) => c.checked)) {
+    gameChecks.get('yahtzee')!.checked = true
+  }
+}
+
 function readRunConfig(): RunConfig {
   const sharedRaw: Record<string, number> = { ...DEFAULT_SHARED }
   for (const field of SHARED_PARAM_SCHEMA) {
@@ -431,6 +473,7 @@ function readRunConfig(): RunConfig {
   }
   return {
     algorithmId: algoSelect.value || currentAlgo.id,
+    gameIds: readSelectedGameIds(),
     shared: pickShared(sharedRaw),
     algoParams,
   }
@@ -439,6 +482,7 @@ function readRunConfig(): RunConfig {
 function writeRunConfig(config: RunConfig): void {
   const algo = getAlgorithm(config.algorithmId)
   algoSelect.value = algo.id
+  setSelectedGameIds(config.gameIds)
   const values = { ...config.shared, ...config.algoParams }
   rebuildParamForm(algo, values)
 }
@@ -600,17 +644,31 @@ function refreshScoresheet(force = false): void {
     return
   }
 
-  const replay = replayBotGames(bot, orch.archive.shape, SCORESHEET_GAME_COLS)
+  const gameIds = orch.gameIds
+  const replay = replayBotGames(bot, orch.archive.shape, SCORESHEET_GAME_COLS, gameIds)
   if (!replay.matched) {
     appendLog(`Scoresheet replay mismatch for bot #${bestId} (seed/checkpoint drift?)`)
   }
-  renderScoresheet(scoresheetHost, {
-    botId: bot.id,
-    fitness: bot.fitness,
-    gamesPlayed: bot.gameScores.length,
-    games: replay.games,
-    matched: replay.matched,
-  })
+  if (gameIds.includes('yahtzee') && replay.games.length > 0) {
+    renderScoresheet(scoresheetHost, {
+      botId: bot.id,
+      fitness: bot.fitness,
+      gamesPlayed: bot.gameScores.length,
+      games: replay.games,
+      matched: replay.matched,
+    })
+  } else {
+    const pyl = pylEpisodesFrom(replay.episodes)
+    const title = gameIds.map((id) => getGame(id).label).join(' + ')
+    renderPylSheet(scoresheetHost, {
+      botId: bot.id,
+      fitness: bot.fitness,
+      gamesPlayed: bot.gameScores.length,
+      episodes: pyl,
+      matched: replay.matched,
+      title,
+    })
+  }
   sheetBestId = bestId
 }
 
@@ -720,6 +778,7 @@ function setFormDisabled(disabled: boolean): void {
   autoBtn.disabled = disabled
   ;(targetLabel.querySelector('input') as HTMLInputElement).disabled = disabled
   for (const input of fieldInputs.values()) input.disabled = disabled
+  for (const input of gameChecks.values()) input.disabled = disabled
 }
 
 wireOrch()
@@ -788,6 +847,7 @@ loadBtn.addEventListener('click', () => {
     }
     writeRunConfig({
       algorithmId: orch.algorithm.id,
+      gameIds: orch.gameIds,
       shared: orch.shared,
       algoParams: orch.algoParams,
     })
@@ -801,7 +861,9 @@ loadBtn.addEventListener('click', () => {
     }
     tableRows = mergeTopBots([], loaded, TABLE_TOP_N)
     renderTable()
-    appendLog(`Loaded ${orch.archive.bots.length} bots (${orch.algorithm.label}).`)
+    appendLog(
+      `Loaded ${orch.archive.bots.length} bots (${orch.algorithm.label}; ${orch.gameIds.join('+')}).`,
+    )
     applyStats({
       created: orch.archive.nextId - 1,
       best: orch.archive.bestFitness,

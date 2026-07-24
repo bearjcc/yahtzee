@@ -42,7 +42,7 @@ describe('replayBotGames', () => {
     const shape = defaultShape(INPUT_SIZE, OUTPUT_SIZE, 8, 6)
     const genome = randomGenome(shape, mulberry32(7))
     const gameSeeds = buildGameSeeds(4, 0.5, 99, mulberry32(11))
-    const evalResult = evaluateGenome(genome, shape, gameSeeds, 0)
+    const evalResult = evaluateGenome(genome, shape, gameSeeds, 0, ['yahtzee'])
     const bot: BotRecord = {
       id: 50,
       fitness: evalResult.fitness,
@@ -67,7 +67,7 @@ describe('replayBotGames', () => {
       { ...botMeta, gameScores: [0, 0, 0, 0] },
       4,
     )
-    const evalResult = evaluateGenome(genome, shape, legacySeeds, 0)
+    const evalResult = evaluateGenome(genome, shape, legacySeeds, 0, ['yahtzee'])
     const bot: BotRecord = {
       id: botMeta.id,
       fitness: evalResult.fitness,

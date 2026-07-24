@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mulberry32 } from './rng.ts'
+import { mulberry32 } from '../../engine/rng.ts'
 import { playGame, playGameResult, type Decision } from './game.ts'
 import { CATEGORIES, type Category } from './types.ts'
 

@@ -53,9 +53,20 @@ describe('evaluateGenome', () => {
     const shape = defaultShape(INPUT_SIZE, OUTPUT_SIZE, 8, 6)
     const genome = randomGenome(shape, mulberry32(9))
     const seeds = buildGameSeeds(4, 0.5, 42, mulberry32(3))
-    const result = evaluateGenome(genome, shape, seeds, 0.25)
+    const result = evaluateGenome(genome, shape, seeds, 0.25, ['yahtzee'])
     expect(result.gameScores).toHaveLength(4)
     expect(result.gameSeeds).toEqual(seeds)
     expect(result.fitness).toBeCloseTo(fitnessFromScores(result.gameScores, 0.25))
+  })
+
+  it('plays gamesPerFitness episodes per selected game', () => {
+    const shape = defaultShape(INPUT_SIZE, OUTPUT_SIZE, 8, 6)
+    const genome = randomGenome(shape, mulberry32(9))
+    const seeds = [
+      ...buildGameSeeds(2, 0.5, 42, mulberry32(3)),
+      ...buildGameSeeds(2, 0.5, 99, mulberry32(4)),
+    ]
+    const result = evaluateGenome(genome, shape, seeds, 0, ['yahtzee', 'farkle'])
+    expect(result.gameScores).toHaveLength(4)
   })
 })

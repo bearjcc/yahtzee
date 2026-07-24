@@ -4,6 +4,7 @@ import { DEFAULT_GENERATIONAL_GA } from './generationalGa.ts'
 import { DEFAULT_ONE_PLUS_LAMBDA } from './onePlusLambda.ts'
 import { DEFAULT_OPENAI_ES } from './openAiEs.ts'
 import { DEFAULT_ALGORITHM_ID } from './registry.ts'
+import { DEFAULT_GAME_IDS } from '../../games/types.ts'
 import type { RunConfig } from './types.ts'
 
 export type MachineClass = 'phone' | 'laptop' | 'desktop'
@@ -197,6 +198,7 @@ export function autoConfigure(
   const { shared, algoParams } = applyHardwareHeuristic(preset, machine, targetScore, hints)
   return {
     algorithmId: preset.algorithmId,
+    gameIds: [...DEFAULT_GAME_IDS],
     shared,
     algoParams,
     machine,
