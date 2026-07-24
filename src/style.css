@@ -394,17 +394,24 @@ button.pane-max .icon {
   gap: 8px;
 }
 
+.workspace .pane[data-pane='sheet'] {
+  display: none;
+}
+
 .workspace.focus-fitness .pane:not([data-pane='fitness']),
 .workspace.focus-hist .pane:not([data-pane='hist']),
 .workspace.focus-console .pane:not([data-pane='console']),
-.workspace.focus-table .pane:not([data-pane='table']) {
+.workspace.focus-table .pane:not([data-pane='table']),
+.workspace.focus-sheet .pane:not([data-pane='sheet']) {
   display: none;
 }
 
 .workspace.focus-fitness .pane[data-pane='fitness'],
 .workspace.focus-hist .pane[data-pane='hist'],
 .workspace.focus-console .pane[data-pane='console'],
-.workspace.focus-table .pane[data-pane='table'] {
+.workspace.focus-table .pane[data-pane='table'],
+.workspace.focus-sheet .pane[data-pane='sheet'] {
+  display: flex;
   grid-column: 1 / -1;
   grid-row: 1 / -1;
 }
@@ -535,4 +542,122 @@ table.bots td {
 
 table.bots tr:nth-child(even) td {
   background: #fff8e7;
+}
+
+.scoresheet-host {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  background: var(--cream);
+  padding: 8px 10px 12px;
+}
+
+.scoresheet-empty {
+  margin: 1.5rem 0.5rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.scoresheet-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 16px;
+  margin-bottom: 8px;
+}
+
+.scoresheet-header h2 {
+  margin: 0;
+  font-family: Bangers, Impact, sans-serif;
+  font-size: 1.6rem;
+  font-style: italic;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+}
+
+.scoresheet-name {
+  font-family: 'IBM Plex Sans', Tahoma, sans-serif;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.scoresheet-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  font-family: 'IBM Plex Sans', Tahoma, sans-serif;
+  font-size: 0.72rem;
+}
+
+.scoresheet-table th,
+.scoresheet-table td {
+  border: 1px solid #1a1208;
+  padding: 2px 5px;
+  vertical-align: middle;
+}
+
+.scoresheet-table thead th {
+  background: #efe4c8;
+  font-weight: 700;
+  text-align: center;
+}
+
+.scoresheet-table th.cat {
+  text-align: left;
+  font-weight: 700;
+  white-space: nowrap;
+  width: 9.5rem;
+}
+
+.scoresheet-table .how {
+  text-align: left;
+  color: var(--muted);
+  font-size: 0.68rem;
+  min-width: 9rem;
+}
+
+.scoresheet-table .score {
+  text-align: center;
+  font-family: 'IBM Plex Mono', Consolas, monospace;
+  font-weight: 600;
+  width: 3.4rem;
+  min-width: 2.8rem;
+}
+
+.scoresheet-table .score.empty {
+  background: #faf6ee;
+}
+
+.scoresheet-table tr.section-label th {
+  background: #1a1208;
+  color: #fff;
+  text-align: left;
+  letter-spacing: 0.05em;
+  font-size: 0.68rem;
+  padding: 3px 6px;
+}
+
+.scoresheet-table tr.strong td.score,
+.scoresheet-table tr.strong th.cat {
+  font-weight: 800;
+}
+
+.scoresheet-table tr.subtotal {
+  background: #fff4d6;
+}
+
+.scoresheet-table tr.grand {
+  background: var(--gold);
+}
+
+.scoresheet-table tr.grand th.cat,
+.scoresheet-table tr.grand td.score {
+  font-size: 0.8rem;
+}
+
+.scoresheet-foot {
+  margin: 8px 2px 0;
+  font-size: 0.72rem;
+  color: var(--muted);
 }

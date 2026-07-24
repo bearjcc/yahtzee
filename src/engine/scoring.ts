@@ -177,6 +177,15 @@ export function upperTotal(scorecard: Scorecard): number {
   return t
 }
 
+export function lowerTotal(scorecard: Scorecard): number {
+  let t = 0
+  for (const c of LOWER_SECTION) {
+    const v = scorecard[c]
+    if (v !== null) t += v
+  }
+  return t
+}
+
 export function totalScore(state: GameState): number {
   let t = 0
   for (const c of CATEGORIES) {

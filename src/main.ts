@@ -3,15 +3,17 @@ import {
   DEFAULT_PARAMS,
   estimateStorageBytes,
   formatBytes,
+  replayBotGames,
   type EvolveParams,
 } from './evolve/index.ts'
 import { Orchestrator } from './evolve/orchestrator.ts'
 import { defaultShape, genomeLength, INPUT_SIZE, OUTPUT_SIZE } from './nn/index.ts'
 import { DashboardCharts } from './ui/charts.ts'
 import { iconBtn, icons } from './ui/icons.ts'
+import { renderScoresheet, SCORESHEET_GAME_COLS } from './ui/scoresheet.ts'
 import { downloadJson, loadCheckpoint, saveCheckpoint } from './store/idb.ts'
 
-type PaneId = 'fitness' | 'hist' | 'console' | 'table'
+type PaneId = 'fitness' | 'hist' | 'console' | 'table' | 'sheet'
 type SortKey = 'id' | 'fitness' | 'parentA' | 'parentB' | 'games'
 type BotRow = {
   id: number
@@ -26,6 +28,7 @@ const FOCUS_CLASSES = [
   'focus-hist',
   'focus-console',
   'focus-table',
+  'focus-sheet',
 ] as const
 
 const SORT_COLUMNS: { key: SortKey; label: string }[] = [
@@ -167,7 +170,9 @@ const setupToggleBtn = iconBtn('', 'setup', 'Setup', { title: 'Toggle setup pane
 const runBtn = iconBtn('', 'play', 'Run', { primary: true })
 const pauseBtn = iconBtn('', 'pause', 'Pause')
 const resetBtn = iconBtn('', 'reset', 'Reset')
-toolbar.append(setupToggleBtn, runBtn, pauseBtn, resetBtn)
+const sheetBtn = iconBtn('', 'sheet', 'Sheet', { title: 'Top bot scoresheet' })
+sheetBtn.disabled = true
+toolbar.append(setupToggleBtn, runBtn, pauseBtn, resetBtn, sheetBtn)
 mainPanel.append(toolbar)
 
 const statsBar = el('div', { class: 'stats-bar' }, [
@@ -216,18 +221,31 @@ const pendingLogs: string[] = []
 let pendingStats: { created: number; best: number; bestId: number; popSize: number } | null = null
 let flushTimer: ReturnType<typeof setInterval> | null = null
 
+const scoresheetHost = el('div', { class: 'scoresheet-host' })
+renderScoresheet(scoresheetHost, null)
+
 const fitnessPane = makePane('fitness', 'Fitness', lineBox)
 const histPane = makePane('hist', 'Score buckets', histBox)
 const consolePane = makePane('console', 'Terminal', consoleEl)
 const tablePane = makePane('table', 'Top 50', tableWrap)
-workspace.append(fitnessPane.pane, histPane.pane, consolePane.pane, tablePane.pane)
+const sheetPane = makePane('sheet', 'Scoresheet', scoresheetHost)
+workspace.append(
+  fitnessPane.pane,
+  histPane.pane,
+  consolePane.pane,
+  tablePane.pane,
+  sheetPane.pane,
+)
 
 const paneMaxBtns: Record<PaneId, HTMLButtonElement> = {
   fitness: fitnessPane.maxBtn,
   hist: histPane.maxBtn,
   console: consolePane.maxBtn,
   table: tablePane.maxBtn,
+  sheet: sheetPane.maxBtn,
 }
+
+let sheetBestId = 0
 
 const charts = new DashboardCharts(lineCanvas, histCanvas)
 let orch = new Orchestrator(DEFAULT_PARAMS)
@@ -385,11 +403,52 @@ function clearUiBuffer(): void {
   pendingStats = null
 }
 
+function refreshScoresheet(force = false): void {
+  const bestId = orch.pop.bestId
+  sheetBtn.disabled = bestId === 0
+  if (bestId === 0) {
+    if (sheetBestId !== 0 || force) {
+      sheetBestId = 0
+      renderScoresheet(scoresheetHost, null)
+    }
+    return
+  }
+  if (!force && focusedPane !== 'sheet') return
+  if (!force && bestId === sheetBestId) return
+
+  const bot = orch.pop.getBot(bestId)
+  if (!bot) {
+    renderScoresheet(scoresheetHost, null)
+    sheetBestId = 0
+    return
+  }
+
+  const replay = replayBotGames(bot, orch.pop.shape, SCORESHEET_GAME_COLS)
+  if (!replay.matched) {
+    appendLog(`Scoresheet replay mismatch for bot #${bestId} (seed/checkpoint drift?)`)
+  }
+  renderScoresheet(scoresheetHost, {
+    botId: bot.id,
+    fitness: bot.fitness,
+    gamesPlayed: bot.gameScores.length,
+    games: replay.games,
+    matched: replay.matched,
+  })
+  sheetBestId = bestId
+}
+
+function openScoresheet(): void {
+  setFocusedPane('sheet')
+  refreshScoresheet(true)
+}
+
 function applyStats(s: { created: number; best: number; bestId: number; popSize: number }): void {
   ;(document.getElementById('statCreated') as HTMLElement).textContent = String(s.created)
   ;(document.getElementById('statPop') as HTMLElement).textContent = String(s.popSize)
   ;(document.getElementById('statBest') as HTMLElement).textContent =
     `${s.best.toFixed(1)} (#${s.bestId})`
+  sheetBtn.disabled = s.bestId === 0
+  if (focusedPane === 'sheet' && s.bestId !== sheetBestId) refreshScoresheet(true)
 }
 
 function flushUi(): void {
@@ -407,6 +466,8 @@ function flushUi(): void {
   if (pendingStats) {
     applyStats(pendingStats)
     pendingStats = null
+  } else if (focusedPane === 'sheet' && orch.pop.bestId !== sheetBestId) {
+    refreshScoresheet(true)
   }
 }
 
@@ -496,6 +557,7 @@ runBtn.addEventListener('click', () => {
 })
 
 pauseBtn.addEventListener('click', () => orch.pause())
+sheetBtn.addEventListener('click', () => openScoresheet())
 
 resetBtn.addEventListener('click', () => {
   orch.pause()
@@ -514,6 +576,9 @@ resetBtn.addEventListener('click', () => {
   runBtn.disabled = false
   pauseBtn.disabled = true
   setFormDisabled(false)
+  sheetBestId = -1
+  refreshScoresheet(true)
+  if (focusedPane === 'sheet') setFocusedPane(null)
 })
 
 saveBtn.addEventListener('click', () => {
@@ -552,6 +617,8 @@ loadBtn.addEventListener('click', () => {
       bestId: orch.pop.bestId,
       popSize: orch.pop.bots.length,
     })
+    sheetBestId = -1
+    refreshScoresheet(true)
   })
 })
 

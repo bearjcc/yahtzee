@@ -58,6 +58,10 @@ export class Population {
     this.rng = mulberry32(seed)
   }
 
+  getBot(id: number): BotRecord | undefined {
+    return this.byId.get(id)
+  }
+
   makeSeedGenome(): Float32Array {
     return randomGenome(this.shape, this.rng)
   }

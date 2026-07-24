@@ -43,6 +43,10 @@ export const icons = {
     svg(
       '<rect x="5" y="2" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="2" y="5" width="9" height="9" fill="var(--panel, #fff8e7)" stroke="currentColor" stroke-width="1.5"/>',
     ),
+  sheet: () =>
+    svg(
+      '<rect x="3" y="1.5" width="10" height="13" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5 5h6M5 7.5h6M5 10h4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="square"/>',
+    ),
 }
 
 export type IconName = keyof typeof icons

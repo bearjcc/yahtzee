@@ -65,8 +65,14 @@ export type Decision = {
   category: Category
 }
 
-/** Play one full game with a decision callback; returns final score. */
-export function playGame(rng: Rng, decide: (state: GameState) => Decision): number {
+export type GameResult = {
+  total: number
+  scorecard: GameState['scorecard']
+  yahtzeeBonuses: number
+}
+
+/** Play one full game with a decision callback; returns scorecard + total. */
+export function playGameResult(rng: Rng, decide: (state: GameState) => Decision): GameResult {
   const state = newGame()
   while (!state.gameOver) {
     rollDiceMut(state, rng)
@@ -85,5 +91,14 @@ export function playGame(rng: Rng, decide: (state: GameState) => Decision): numb
       rollDiceMut(state, rng)
     }
   }
-  return totalScore(state)
+  return {
+    total: totalScore(state),
+    scorecard: { ...state.scorecard },
+    yahtzeeBonuses: state.yahtzeeBonuses,
+  }
+}
+
+/** Play one full game with a decision callback; returns final score. */
+export function playGame(rng: Rng, decide: (state: GameState) => Decision): number {
+  return playGameResult(rng, decide).total
 }
