@@ -1,3 +1,4 @@
+import type { GameId } from '../../games/types.ts'
 import type { NetShape } from '../../nn/index.ts'
 import type { Archive, BotRecord } from '../archive.ts'
 import type { SharedParams } from '../params.ts'
@@ -28,6 +29,8 @@ export type TrainCandidate = {
 
 export type RunConfig = {
   algorithmId: string
+  /** One or more games; bot plays gamesPerFitness episodes for each. */
+  gameIds: GameId[]
   shared: SharedParams
   algoParams: Record<string, number>
 }

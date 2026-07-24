@@ -1,3 +1,4 @@
+import { faceCounts } from '../dice.ts'
 import {
   CATEGORIES,
   LOWER_SECTION,
@@ -12,11 +13,7 @@ import {
   type Scorecard,
 } from './types.ts'
 
-export function faceCounts(dice: number[]): number[] {
-  const counts = [0, 0, 0, 0, 0, 0, 0]
-  for (const d of dice) counts[d]!++
-  return counts
-}
+export { faceCounts }
 
 export function isYahtzee(dice: number[]): boolean {
   const c = faceCounts(dice)

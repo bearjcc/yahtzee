@@ -1,55 +1,12 @@
-import {
-  CATEGORIES,
-  UPPER_BONUS_THRESHOLD,
-  UPPER_SECTION,
-  categoryMaxScore,
-  faceCounts,
-  upperTotal,
-  type GameState,
-} from '../engine/index.ts'
+import { INPUT_SIZE, OUTPUT_SIZE } from './layout.ts'
 
-/** Fixed input size for the policy net. */
-export const INPUT_SIZE = 45
-/** hold[5] + scoreNow[1] + category[13] */
-export const OUTPUT_SIZE = 19
+export { INPUT_SIZE, OUTPUT_SIZE, IN, OUT, MAX_DICE, NUM_GAMES, NUM_CATEGORIES } from './layout.ts'
 
-export function encodeStateInto(state: GameState, v: Float32Array): void {
-  let i = 0
-
-  for (let d = 0; d < 5; d++) v[i++] = state.dice[d]! / 6
-
-  const counts = faceCounts(state.dice)
-  for (let f = 1; f <= 6; f++) v[i++] = counts[f]! / 5
-
-  v[i++] = state.rollsRemaining / 3
-
-  for (const c of CATEGORIES) v[i++] = state.scorecard[c] === null ? 0 : 1
-
-  for (const c of CATEGORIES) {
-    const s = state.scorecard[c]
-    v[i++] = s === null ? 0 : s / categoryMaxScore(c)
-  }
-
-  const up = upperTotal(state.scorecard)
-  v[i++] = up / UPPER_BONUS_THRESHOLD
-  v[i++] = Math.max(0, UPPER_BONUS_THRESHOLD - up) / UPPER_BONUS_THRESHOLD
-
-  const y = state.scorecard.yahtzee
-  v[i++] = y === null ? 1 : 0
-  v[i++] = y === 0 ? 1 : 0
-  v[i++] = y === 50 ? 1 : 0
-
-  v[i++] = Math.min(state.yahtzeeBonuses, 13) / 13
-  v[i++] = state.turn / 13
-
-  if (i !== INPUT_SIZE) {
-    void UPPER_SECTION
-    throw new Error(`encodeState length mismatch: ${i} !== ${INPUT_SIZE}`)
-  }
+/** Allocate a zeroed input vector of the shared size. */
+export function emptyInput(): Float32Array {
+  return new Float32Array(INPUT_SIZE)
 }
 
-export function encodeState(state: GameState): Float32Array {
-  const v = new Float32Array(INPUT_SIZE)
-  encodeStateInto(state, v)
-  return v
+export function emptyOutput(): Float32Array {
+  return new Float32Array(OUTPUT_SIZE)
 }

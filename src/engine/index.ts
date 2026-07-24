@@ -1,4 +1,3 @@
-export * from './types.ts'
+/** Shared RNG plus Yahtzee re-exports for existing call sites. */
 export * from './rng.ts'
-export * from './scoring.ts'
-export * from './game.ts'
+export * from '../games/yahtzee/index.ts'

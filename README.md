@@ -1,6 +1,6 @@
 # DiceLab
 
-Browser trainer for Yahtzee-playing neural nets. Runs locally (or on GitHub Pages); no server required.
+Browser trainer for dice-game neural nets (Yahtzee, Farkle, 6 Cubes). Select one or more games via checkboxes to cross-train a shared policy. Runs locally (or on GitHub Pages); no server required.
 
 ## Run
 

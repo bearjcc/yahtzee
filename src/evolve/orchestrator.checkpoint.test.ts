@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_PARAMS } from './params.ts'
+import { defaultShape, genomeLength, INPUT_SIZE, OUTPUT_SIZE } from '../nn/index.ts'
+import { DEFAULT_PARAMS, DEFAULT_SHARED } from './params.ts'
 import { Orchestrator } from './orchestrator.ts'
 
 describe('Orchestrator checkpoints', () => {
@@ -41,19 +42,28 @@ describe('Orchestrator checkpoints', () => {
     }
 
     const dump = orch.serialize()
-    expect(dump.version).toBe(2)
+    expect(dump.version).toBe(3)
     expect(dump.algorithmId).toBe('leaderboardGenetics')
+    expect(dump.gameIds).toEqual(['yahtzee'])
     expect(dump.bots.length).toBe(2)
 
     const orch2 = new Orchestrator()
     orch2.loadSerialized(dump)
     expect(orch2.algorithm.id).toBe('leaderboardGenetics')
+    expect(orch2.gameIds).toEqual(['yahtzee'])
     expect(orch2.archive.bots.length).toBe(2)
     expect(orch2.algoParams.k).toBe(1.5)
     expect(orch2.shared.maxBots).toBe(50)
   })
 
   it('migrates legacy flat checkpoints to Leaderboard genetics', () => {
+    const shape = defaultShape(
+      INPUT_SIZE,
+      OUTPUT_SIZE,
+      DEFAULT_SHARED.hidden1,
+      DEFAULT_SHARED.hidden2,
+    )
+    const glen = genomeLength(shape)
     const legacy = {
       params: { ...DEFAULT_PARAMS, k: 1.2, maxBots: 40 },
       nextId: 2,
@@ -69,13 +79,14 @@ describe('Orchestrator checkpoints', () => {
           parentA: null,
           parentB: null,
           tickets: 1,
-          genome: Array.from({ length: 100 }, () => 0.1),
+          genome: Array.from({ length: glen }, () => 0.1),
         },
       ],
     }
     const orch = new Orchestrator()
     orch.loadSerialized(legacy)
     expect(orch.algorithm.id).toBe('leaderboardGenetics')
+    expect(orch.gameIds).toEqual(['yahtzee'])
     expect(orch.shared.maxBots).toBe(40)
     expect(orch.algoParams.k).toBe(1.2)
     expect(orch.archive.bots.length).toBe(1)

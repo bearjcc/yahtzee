@@ -1,5 +1,7 @@
-import { mulberry32, playGame } from '../engine/index.ts'
-import { createScratch, decide, type NetShape } from '../nn/index.ts'
+import { mulberry32 } from '../engine/rng.ts'
+import { getGame } from '../games/registry.ts'
+import { normalizeGameIds, type GameId } from '../games/types.ts'
+import { actFromEncode, createScratch, type NetShape } from '../nn/index.ts'
 
 export interface EvalResult {
   fitness: number
@@ -23,6 +25,7 @@ export function sampleStdev(scores: number[]): number {
 }
 
 export function fitnessFromScores(gameScores: number[], fitnessStdPenalty: number): number {
+  if (gameScores.length === 0) throw new Error('fitnessFromScores: empty scores')
   let sum = 0
   for (const s of gameScores) sum += s
   const mean = sum / gameScores.length
@@ -35,7 +38,7 @@ export function sharedGameCount(gamesPerFitness: number, sharedGameFraction: num
   return Math.floor(gamesPerFitness * frac)
 }
 
-/** Build per-game seeds: shared suite then private random uint32s. */
+/** Build per-episode seeds for one game: shared suite then private random uint32s. */
 export function buildGameSeeds(
   gamesPerFitness: number,
   sharedGameFraction: number,
@@ -53,6 +56,27 @@ export function buildGameSeeds(
   return seeds
 }
 
+/**
+ * Build flat seeds for all selected games.
+ * Layout: [game0_ep0..game0_epN-1, game1_ep0..., ...]
+ * Shared base is offset per game index for fairness within each game.
+ */
+export function buildMultiGameSeeds(
+  gameIds: GameId[],
+  gamesPerFitness: number,
+  sharedGameFraction: number,
+  sharedBase: number,
+  privateRng: () => number,
+): number[] {
+  const ids = normalizeGameIds(gameIds)
+  const out: number[] = []
+  for (let gi = 0; gi < ids.length; gi++) {
+    const base = (sharedBase + gi * 100003) >>> 0
+    out.push(...buildGameSeeds(gamesPerFitness, sharedGameFraction, base, privateRng))
+  }
+  return out
+}
+
 /** Cryptographically strong uint32 in [0, 1) for private game seeds. */
 export function cryptoUnit(): number {
   const buf = new Uint32Array(1)
@@ -65,13 +89,28 @@ export function evaluateGenome(
   shape: NetShape,
   gameSeeds: number[],
   fitnessStdPenalty = 0,
+  gameIds: GameId[] = ['yahtzee'],
 ): EvalResult {
+  const ids = normalizeGameIds(gameIds)
+  const perGame = Math.floor(gameSeeds.length / ids.length)
+  if (perGame < 1 || perGame * ids.length !== gameSeeds.length) {
+    throw new Error(
+      `gameSeeds length ${gameSeeds.length} not divisible by game count ${ids.length}`,
+    )
+  }
+
   const scratch = createScratch(shape)
   const gameScores: number[] = []
-  for (let g = 0; g < gameSeeds.length; g++) {
-    const rng = mulberry32(gameSeeds[g]!)
-    const score = playGame(rng, (state) => decide(state, genome, shape, scratch))
-    gameScores.push(score)
+  let seedIdx = 0
+  for (const id of ids) {
+    const game = getGame(id)
+    for (let g = 0; g < perGame; g++) {
+      const rng = mulberry32(gameSeeds[seedIdx++]!)
+      const score = game.play(rng, (encodeInto) =>
+        actFromEncode(encodeInto, genome, shape, scratch),
+      )
+      gameScores.push(score)
+    }
   }
   const fitness = fitnessFromScores(gameScores, fitnessStdPenalty)
   return { fitness, gameScores, gameSeeds }

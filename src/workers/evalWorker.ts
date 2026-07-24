@@ -1,4 +1,5 @@
 import { evaluateGenome } from '../evolve/evaluate.ts'
+import type { GameId } from '../games/types.ts'
 import type { NetShape } from '../nn/index.ts'
 
 export type WorkerRequest = {
@@ -7,6 +8,7 @@ export type WorkerRequest = {
   shape: NetShape
   gameSeeds: number[]
   fitnessStdPenalty: number
+  gameIds: GameId[]
   parentA: number | null
   parentB: number | null
 }
@@ -31,6 +33,7 @@ ctx.onmessage = (ev: MessageEvent<WorkerRequest>) => {
     msg.shape,
     msg.gameSeeds,
     msg.fitnessStdPenalty,
+    msg.gameIds,
   )
   const res: WorkerResponse = {
     jobId: msg.jobId,

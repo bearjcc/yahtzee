@@ -358,6 +358,35 @@ body {
   text-transform: uppercase;
 }
 
+.game-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 4px 0 10px;
+  padding: 6px 8px;
+  border: 2px solid #8a6a30;
+  background: var(--cream);
+}
+
+.game-check {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink);
+  text-transform: none;
+  cursor: pointer;
+}
+
+.game-check input {
+  width: auto;
+  margin: 0;
+  accent-color: var(--red-dark);
+}
+
 .auto-grid {
   margin-bottom: 8px;
 }

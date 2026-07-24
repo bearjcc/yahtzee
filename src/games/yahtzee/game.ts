@@ -1,4 +1,4 @@
-import { rollDie, type Rng } from './rng.ts'
+import { rollDie, type Rng } from '../../engine/rng.ts'
 import { applyScore, applyScoreMut, legalCategories, totalScore } from './scoring.ts'
 import { newGame, type Category, type GameState } from './types.ts'
 

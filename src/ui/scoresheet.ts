@@ -9,6 +9,7 @@ import {
   type Category,
   type GameResult,
 } from '../engine/index.ts'
+import type { EpisodeResult, PylEpisodeResult } from '../games/types.ts'
 
 const SHEET_GAMES = 6
 
@@ -37,6 +38,15 @@ export type ScoresheetView = {
   gamesPlayed: number
   games: GameResult[]
   matched: boolean
+}
+
+export type PylSheetView = {
+  botId: number
+  fitness: number
+  gamesPlayed: number
+  episodes: PylEpisodeResult[]
+  matched: boolean
+  title: string
 }
 
 function cell(text: string, className = ''): HTMLTableCellElement {
@@ -198,6 +208,76 @@ export function renderScoresheet(host: HTMLElement, view: ScoresheetView | null)
   wrap.append(foot)
 
   host.append(wrap)
+}
+
+/** Render push-your-luck episode summary (turns / banked / fitness). */
+export function renderPylSheet(host: HTMLElement, view: PylSheetView | null): void {
+  host.replaceChildren()
+  if (!view) {
+    const empty = document.createElement('p')
+    empty.className = 'scoresheet-empty'
+    empty.textContent = 'No top bot yet. Run evolution to fill the sheet.'
+    host.append(empty)
+    return
+  }
+
+  const shown = Math.min(SHEET_GAMES, view.episodes.length)
+  const wrap = document.createElement('div')
+  wrap.className = 'scoresheet'
+
+  const header = document.createElement('div')
+  header.className = 'scoresheet-header'
+  const title = document.createElement('h2')
+  title.textContent = view.title
+  const name = document.createElement('div')
+  name.className = 'scoresheet-name'
+  name.textContent = `Name: Bot #${view.botId}`
+  header.append(title, name)
+  wrap.append(header)
+
+  const table = document.createElement('table')
+  table.className = 'scoresheet-table'
+  const thead = document.createElement('thead')
+  const headRow = document.createElement('tr')
+  headRow.append(
+    th(''),
+    ...Array.from({ length: SHEET_GAMES }, (_, i) => th(`#${i + 1}`, 'score')),
+  )
+  thead.append(headRow)
+  table.append(thead)
+
+  const tbody = document.createElement('tbody')
+  const turns = view.episodes.map((e) => e.turns)
+  const banked = view.episodes.map((e) => e.banked)
+  const fitness = view.episodes.map((e) => Math.round(e.total * 10) / 10)
+  const goal = view.episodes[0]?.goal ?? 0
+
+  tbody.append(
+    row('Goal', totalCells(pad(Array(shown).fill(goal), shown))),
+    row('Turns', totalCells(pad(turns, shown))),
+    row('Banked', totalCells(pad(banked, shown))),
+    row('Fitness (goal/turns)', totalCells(pad(fitness, shown)), {
+      strong: true,
+      section: 'grand',
+    }),
+  )
+  table.append(tbody)
+  wrap.append(table)
+
+  const foot = document.createElement('p')
+  foot.className = 'scoresheet-foot'
+  const parts = [
+    `Showing ${shown} of ${view.gamesPlayed}`,
+    `mean fitness ${view.fitness.toFixed(1)}`,
+  ]
+  if (!view.matched) parts.push('replay totals mismatch stored scores')
+  foot.textContent = parts.join(' · ')
+  wrap.append(foot)
+  host.append(wrap)
+}
+
+export function pylEpisodesFrom(results: EpisodeResult[]): PylEpisodeResult[] {
+  return results.filter((e): e is PylEpisodeResult => e.kind === 'pyl')
 }
 
 function pad(values: number[], shown: number): (number | null)[] {

@@ -1,3 +1,4 @@
+import type { GameId } from '../games/types.ts'
 import type { NetShape } from '../nn/network.ts'
 import type { WorkerRequest, WorkerResponse } from './evalWorker.ts'
 
@@ -6,6 +7,7 @@ export type EvalJob = {
   shape: NetShape
   gameSeeds: number[]
   fitnessStdPenalty: number
+  gameIds: GameId[]
   parentA: number | null
   parentB: number | null
 }
@@ -74,6 +76,7 @@ export class WorkerPool {
         shape: item.job.shape,
         gameSeeds: item.job.gameSeeds,
         fitnessStdPenalty: item.job.fitnessStdPenalty,
+        gameIds: item.job.gameIds,
         parentA: item.job.parentA,
         parentB: item.job.parentB,
       }
