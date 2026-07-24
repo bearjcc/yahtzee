@@ -2,7 +2,7 @@
 
 ## Cursor Cloud specific instructions
 
-DiceLab (`package.json` name `yahtzee`) is a single, zero-backend Vite + TypeScript SPA that trains neural nets to play Yahtzee / Farkle / 6 Cubes entirely in the browser (Web Workers + IndexedDB). Game engines live under `src/games/`; a shared padded NN I/O lets one genome play multiple selected games. There is no server, database, API, or secrets to configure.
+DiceLab (`package.json` name `yahtzee`) is a single, zero-backend Vite + TypeScript SPA that trains neural nets to play Yahtzee / Farkle / 6 Cubes / Goblin Gamble entirely in the browser (Web Workers + IndexedDB). Game engines live under `src/games/`; a shared padded NN I/O lets one genome play multiple selected games. There is no server, database, API, or secrets to configure.
 
 Standard commands live in `package.json` and `README.md`:
 - `npm run dev` - Vite dev server (dependency refresh via update script `npm install`).

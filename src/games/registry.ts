@@ -1,4 +1,5 @@
 import { farkleGame } from './farkle.ts'
+import { goblinGambleGame } from './goblinGamble/index.ts'
 import { sixCubesGame } from './sixCubes.ts'
 import {
   DEFAULT_GAME_IDS,
@@ -12,6 +13,7 @@ const factories: Record<GameId, GameModule> = {
   yahtzee: yahtzeeGame,
   farkle: farkleGame,
   sixCubes: sixCubesGame,
+  goblinGamble: goblinGambleGame,
 }
 
 export function listGames(): GameModule[] {

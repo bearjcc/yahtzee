@@ -1,17 +1,17 @@
 import type { Rng } from '../engine/rng.ts'
 
-export const GAME_IDS = ['yahtzee', 'farkle', 'sixCubes'] as const
+export const GAME_IDS = ['yahtzee', 'farkle', 'sixCubes', 'goblinGamble'] as const
 export type GameId = (typeof GAME_IDS)[number]
 
 export const DEFAULT_GAME_IDS: GameId[] = ['yahtzee']
 
 /** Shared action head decoded from the policy net. */
 export type NetDecision = {
-  /** Length MAX_DICE; unused slots ignored by 5-dice games. */
+  /** Length MAX_DICE; unused slots ignored by smaller-dice games. */
   held: boolean[]
-  /** Yahtzee: score now. Farkle / 6 Cubes: bank turn points. */
+  /** Yahtzee / Goblin: score now. Farkle / 6 Cubes: bank turn points. */
   bankOrScore: boolean
-  /** Yahtzee category index 0..12; ignored by push-your-luck games. */
+  /** Scorecard category index; ignored by push-your-luck games. */
   categoryIndex: number
 }
 
@@ -29,6 +29,13 @@ export type YahtzeeEpisodeResult = {
   yahtzeeBonuses: number
 }
 
+export type GoblinEpisodeResult = {
+  kind: 'goblinGamble'
+  total: number
+  scorecard: Record<string, number | null>
+  inspiration: number
+}
+
 export type PylEpisodeResult = {
   kind: 'pyl'
   /** Fitness scalar (goal / turns). */
@@ -38,7 +45,7 @@ export type PylEpisodeResult = {
   goal: number
 }
 
-export type EpisodeResult = YahtzeeEpisodeResult | PylEpisodeResult
+export type EpisodeResult = YahtzeeEpisodeResult | GoblinEpisodeResult | PylEpisodeResult
 
 export interface GameModule {
   readonly id: GameId
@@ -46,7 +53,7 @@ export interface GameModule {
   readonly diceCount: number
   /** Index into the shared game one-hot (0..NUM_GAMES-1). */
   readonly oneHotIndex: number
-  /** Target banked score for push-your-luck games; undefined for Yahtzee. */
+  /** Target banked score for push-your-luck games; undefined for scorecard games. */
   readonly goalScore?: number
   /** Play one episode; return fitness scalar. */
   play(rng: Rng, act: ActFn): number
