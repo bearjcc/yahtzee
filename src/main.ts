@@ -22,6 +22,7 @@ import { DashboardCharts } from './ui/charts.ts'
 import { iconBtn, icons } from './ui/icons.ts'
 import {
   pylEpisodesFrom,
+  renderGoblinSheet,
   renderPylSheet,
   renderScoresheet,
   SCORESHEET_GAME_COLS,
@@ -112,7 +113,7 @@ const hero = el('header', { class: 'hero' }, [
   el('div', { class: 'hero-copy' }, [
     el('h1', {}, ['DiceLab']),
     el('p', { class: 'tag' }, [
-      'Breed tiny nets that play dice games. Pick Yahtzee, Farkle, and/or 6 Cubes, twist the knobs, hit Run.',
+      'Breed tiny nets that play dice games. Pick Yahtzee, Farkle, 6 Cubes, and/or Goblin Gamble, twist the knobs, hit Run.',
     ]),
   ]),
 ])
@@ -123,7 +124,7 @@ const about = el('details', { class: 'about' }, [
   el('summary', {}, ['How it works']),
   el('div', { class: 'about-body' }, [
     el('p', {}, [
-      'Each bot plays a batch of games for every checked ruleset (Yahtzee sheet score; Farkle/6 Cubes use goal÷turns). Fitness is the mean of those episode scores minus a small stdev penalty. Half the episodes share a batch-wide seed suite (fair compare); the other half are private random seeds (limits overfitting).',
+      'Each bot plays a batch of games for every checked ruleset (Yahtzee / Goblin Gamble sheet score; Farkle/6 Cubes use goal÷turns). Fitness is the mean of those episode scores minus a small stdev penalty. Half the episodes share a batch-wide seed suite (fair compare); the other half are private random seeds (limits overfitting).',
     ]),
     aboutAlgoP,
     el('p', {}, [
@@ -655,6 +656,14 @@ function refreshScoresheet(force = false): void {
       fitness: bot.fitness,
       gamesPlayed: bot.gameScores.length,
       games: replay.games,
+      matched: replay.matched,
+    })
+  } else if (gameIds.includes('goblinGamble') && replay.goblinGames.length > 0) {
+    renderGoblinSheet(scoresheetHost, {
+      botId: bot.id,
+      fitness: bot.fitness,
+      gamesPlayed: bot.gameScores.length,
+      games: replay.goblinGames,
       matched: replay.matched,
     })
   } else {

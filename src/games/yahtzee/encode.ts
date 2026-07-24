@@ -6,17 +6,17 @@ import {
   type GameState,
 } from './types.ts'
 import { categoryMaxScore, upperTotal } from './scoring.ts'
-import { IN, YAHTZEE_CARD_SIZE } from '../../nn/layout.ts'
+import { IN, SCORECARD_SIZE } from '../../nn/layout.ts'
 
 export type YahtzeeState = GameState
 export { CATEGORIES }
 
-/** Write Yahtzee state into the shared input vector (zeros unused PYL slots). */
+/** Write Yahtzee state into the shared input vector (zeros unused PYL / Goblin slots). */
 export function encodeYahtzeeInto(state: GameState, v: Float32Array): void {
   v.fill(0)
 
   for (let d = 0; d < 5; d++) v[IN.dice + d] = state.dice[d]! / 6
-  // slot 5 unused for Yahtzee
+  // slots 5..11 unused for Yahtzee
 
   const counts = faceCounts(state.dice)
   for (let f = 1; f <= 6; f++) v[IN.faceCounts + (f - 1)] = counts[f]! / 5
@@ -46,9 +46,10 @@ export function encodeYahtzeeInto(state: GameState, v: Float32Array): void {
   v[i++] = Math.min(state.yahtzeeBonuses, 13) / 13
   v[i++] = state.turn / 13
 
-  if (i !== IN.yahtzeeCard + YAHTZEE_CARD_SIZE) {
+  // Pad remaining scorecard region (Goblin-sized) with zeros from fill(0).
+  if (i > IN.yahtzeeCard + SCORECARD_SIZE) {
     void UPPER_SECTION
-    throw new Error(`yahtzee card encode length mismatch: ${i}`)
+    throw new Error(`yahtzee card encode overflow: ${i}`)
   }
   // pylProgress left zeroed
 }

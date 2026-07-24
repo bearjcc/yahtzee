@@ -4,10 +4,12 @@ import {
   normalizeGameIds,
   type EpisodeResult,
   type GameId,
+  type GoblinEpisodeResult,
   type YahtzeeEpisodeResult,
 } from '../games/types.ts'
 import type { BotRecord } from './archive.ts'
-import type { GameResult } from '../games/yahtzee/game.ts'
+import type { GameResult as YahtzeeGameResult } from '../games/yahtzee/game.ts'
+import type { GameResult as GoblinGameResult } from '../games/goblinGamble/game.ts'
 import { mulberry32 } from '../engine/rng.ts'
 
 /** Legacy fallback when bot.gameSeeds is missing (pre-mixed-seed checkpoints). */
@@ -33,7 +35,8 @@ export function resolveGameSeeds(
 }
 
 export type ReplayResult = {
-  games: GameResult[]
+  games: YahtzeeGameResult[]
+  goblinGames: GoblinGameResult[]
   episodes: EpisodeResult[]
   /** True when every replayed total matches bot.gameScores for those games. */
   matched: boolean
@@ -41,7 +44,7 @@ export type ReplayResult = {
 
 /**
  * Replay fitness episodes for a bot.
- * When `gameIds` includes Yahtzee, `games` holds Yahtzee GameResult rows for the scoresheet.
+ * Scorecard games fill `games` (Yahtzee) or `goblinGames` for the scoresheet.
  */
 export function replayBotGames(
   bot: BotRecord,
@@ -57,7 +60,8 @@ export function replayBotGames(
   const totalEpisodes = perGame * ids.length
   const gameSeeds = resolveGameSeeds(bot, totalEpisodes)
   const episodes: EpisodeResult[] = []
-  const yahtzeeGames: GameResult[] = []
+  const yahtzeeGames: YahtzeeGameResult[] = []
+  const goblinGames: GoblinGameResult[] = []
   let matched = true
   let seedIdx = 0
   let scoreIdx = 0
@@ -76,11 +80,18 @@ export function replayBotGames(
         const y = result as YahtzeeEpisodeResult
         yahtzeeGames.push({
           total: y.total,
-          scorecard: y.scorecard as GameResult['scorecard'],
+          scorecard: y.scorecard as YahtzeeGameResult['scorecard'],
           yahtzeeBonuses: y.yahtzeeBonuses,
+        })
+      } else if (result.kind === 'goblinGamble') {
+        const gRes = result as GoblinEpisodeResult
+        goblinGames.push({
+          total: gRes.total,
+          scorecard: gRes.scorecard as GoblinGameResult['scorecard'],
+          inspiration: gRes.inspiration,
         })
       }
     }
   }
-  return { games: yahtzeeGames, episodes, matched }
+  return { games: yahtzeeGames, goblinGames, episodes, matched }
 }

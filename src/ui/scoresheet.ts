@@ -9,6 +9,16 @@ import {
   type Category,
   type GameResult,
 } from '../engine/index.ts'
+import {
+  LOWER_SECTION as GOBLIN_LOWER,
+  UPPER_SECTION as GOBLIN_UPPER,
+  INSPIRATION_POINTS,
+  INSPIRATION_THRESHOLD,
+  lowerTotal as goblinLowerTotal,
+  upperTotal as goblinUpperTotal,
+  type Category as GoblinCategory,
+  type GameResult as GoblinGameResult,
+} from '../games/goblinGamble/index.ts'
 import type { EpisodeResult, PylEpisodeResult } from '../games/types.ts'
 
 const SHEET_GAMES = 6
@@ -47,6 +57,44 @@ export type PylSheetView = {
   episodes: PylEpisodeResult[]
   matched: boolean
   title: string
+}
+
+export type GoblinSheetView = {
+  botId: number
+  fitness: number
+  gamesPlayed: number
+  games: GoblinGameResult[]
+  matched: boolean
+}
+
+const GOBLIN_UPPER_LABELS: Record<(typeof GOBLIN_UPPER)[number], string> = {
+  ones: 'Ones',
+  twos: 'Twos',
+  threes: 'Threes',
+  fours: 'Fours',
+  fives: 'Fives',
+  sixes: 'Sixes',
+  sevens: 'Sevens',
+  eights: 'Eights',
+  nines: 'Nines',
+  tens: 'Tens',
+}
+
+const GOBLIN_LOWER_LABELS: Record<(typeof GOBLIN_LOWER)[number], string> = {
+  magicMissile: 'Magic Missile',
+  partyOfFour: 'Party of Four',
+  fireball: 'Fireball',
+  balancedParty: 'Balanced Party',
+  initiative: 'Initiative',
+  dungeonCrawl: 'Dungeon Crawl',
+  polymorph: 'Polymorph',
+  minMax: 'Min-Max',
+  success: 'Success',
+  criticalSuccess: 'Critical Success',
+  failure: 'Failure',
+  criticalFailure: 'Critical Failure',
+  twinnedSpell: 'Twinned Spell',
+  bagOfHolding: 'Bag of Holding',
 }
 
 function cell(text: string, className = ''): HTMLTableCellElement {
@@ -274,6 +322,118 @@ export function renderPylSheet(host: HTMLElement, view: PylSheetView | null): vo
   foot.textContent = parts.join(' · ')
   wrap.append(foot)
   host.append(wrap)
+}
+
+/** Render Goblin Gamble scoresheet into `host` (replaces children). */
+export function renderGoblinSheet(host: HTMLElement, view: GoblinSheetView | null): void {
+  host.replaceChildren()
+  if (!view) {
+    const empty = document.createElement('p')
+    empty.className = 'scoresheet-empty'
+    empty.textContent = 'No top bot yet. Run evolution to fill the sheet.'
+    host.append(empty)
+    return
+  }
+
+  const { games } = view
+  const shown = Math.min(SHEET_GAMES, games.length)
+
+  const wrap = document.createElement('div')
+  wrap.className = 'scoresheet'
+
+  const header = document.createElement('div')
+  header.className = 'scoresheet-header'
+  const title = document.createElement('h2')
+  title.textContent = 'Goblin Gamble'
+  const name = document.createElement('div')
+  name.className = 'scoresheet-name'
+  name.textContent = `Name: Bot #${view.botId}`
+  header.append(title, name)
+  wrap.append(header)
+
+  const table = document.createElement('table')
+  table.className = 'scoresheet-table'
+
+  const thead = document.createElement('thead')
+  const headRow = document.createElement('tr')
+  headRow.append(
+    th(''),
+    ...Array.from({ length: SHEET_GAMES }, (_, i) => th(`#${i + 1}`, 'score')),
+  )
+  thead.append(headRow)
+  table.append(thead)
+
+  const tbody = document.createElement('tbody')
+  tbody.append(sectionHeader('UPPER SECTION'))
+
+  for (const cat of GOBLIN_UPPER) {
+    tbody.append(row(GOBLIN_UPPER_LABELS[cat], goblinCategoryCells(games, cat)))
+  }
+
+  const upperTotals = games.map((g) => goblinUpperTotal(g.scorecard))
+  const bonuses = games.map((g) =>
+    goblinUpperTotal(g.scorecard) >= INSPIRATION_THRESHOLD ? INSPIRATION_POINTS : 0,
+  )
+  const upperWithBonus = upperTotals.map((u, i) => u + (bonuses[i] ?? 0))
+
+  tbody.append(
+    row('Total Score', totalCells(pad(upperTotals, shown)), { strong: true }),
+    row(`Inspiration (≥${INSPIRATION_THRESHOLD})`, totalCells(pad(bonuses, shown))),
+    row('Total of Upper Section', totalCells(pad(upperWithBonus, shown)), {
+      strong: true,
+      section: 'subtotal',
+    }),
+  )
+
+  tbody.append(sectionHeader('LOWER SECTION'))
+
+  for (const cat of GOBLIN_LOWER) {
+    tbody.append(row(GOBLIN_LOWER_LABELS[cat], goblinCategoryCells(games, cat)))
+  }
+
+  const lowerTotals = games.map((g) => goblinLowerTotal(g.scorecard))
+
+  tbody.append(
+    row('Total of Lower Section', totalCells(pad(lowerTotals, shown)), {
+      strong: true,
+      section: 'subtotal',
+    }),
+    row('Total of Upper Section', totalCells(pad(upperWithBonus, shown)), {
+      strong: true,
+      section: 'subtotal',
+    }),
+    row('GRAND TOTAL', totalCells(pad(games.map((g) => g.total), shown)), {
+      strong: true,
+      section: 'grand',
+    }),
+  )
+
+  table.append(tbody)
+  wrap.append(table)
+
+  const foot = document.createElement('p')
+  foot.className = 'scoresheet-foot'
+  const parts = [
+    `Showing ${shown} of ${view.gamesPlayed}`,
+    `mean fitness ${view.fitness.toFixed(1)}`,
+  ]
+  if (!view.matched) parts.push('replay totals mismatch stored scores')
+  foot.textContent = parts.join(' · ')
+  wrap.append(foot)
+
+  host.append(wrap)
+}
+
+function goblinCategoryCells(
+  games: GoblinGameResult[],
+  cat: GoblinCategory,
+): HTMLTableCellElement[] {
+  const cells: HTMLTableCellElement[] = []
+  for (let i = 0; i < SHEET_GAMES; i++) {
+    const g = games[i]
+    cells.push(g ? scoreCell(g.scorecard[cat]) : cell('', 'score empty'))
+  }
+  return cells
 }
 
 export function pylEpisodesFrom(results: EpisodeResult[]): PylEpisodeResult[] {

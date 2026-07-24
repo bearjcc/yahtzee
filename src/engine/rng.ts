@@ -12,7 +12,12 @@ export function mulberry32(seed: number): Rng {
 }
 
 export function rollDie(rng: Rng): number {
-  return 1 + Math.floor(rng() * 6)
+  return rollDieN(rng, 6)
+}
+
+/** Roll a die with `sides` faces (result in 1..sides). */
+export function rollDieN(rng: Rng, sides: number): number {
+  return 1 + Math.floor(rng() * sides)
 }
 
 export function pickIndex(rng: Rng, weights: Float64Array | number[]): number {
