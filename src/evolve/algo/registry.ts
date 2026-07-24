@@ -1,8 +1,16 @@
+import { createCmaEs } from './cmaEs.ts'
+import { createGenerationalGa } from './generationalGa.ts'
 import { createLeaderboardGenetics } from './leaderboardGenetics.ts'
+import { createOnePlusLambda } from './onePlusLambda.ts'
+import { createOpenAiEs } from './openAiEs.ts'
 import type { Algorithm } from './types.ts'
 
 const factories: Record<string, () => Algorithm> = {
   leaderboardGenetics: createLeaderboardGenetics,
+  generationalGa: createGenerationalGa,
+  onePlusLambda: createOnePlusLambda,
+  openAiEs: createOpenAiEs,
+  cmaEs: createCmaEs,
 }
 
 export const DEFAULT_ALGORITHM_ID = 'leaderboardGenetics'

@@ -1,4 +1,8 @@
 import { DEFAULT_LEADERBOARD, DEFAULT_SHARED, type SharedParams } from '../params.ts'
+import { DEFAULT_CMA_ES } from './cmaEs.ts'
+import { DEFAULT_GENERATIONAL_GA } from './generationalGa.ts'
+import { DEFAULT_ONE_PLUS_LAMBDA } from './onePlusLambda.ts'
+import { DEFAULT_OPENAI_ES } from './openAiEs.ts'
 import { DEFAULT_ALGORITHM_ID } from './registry.ts'
 import type { RunConfig } from './types.ts'
 
@@ -31,18 +35,21 @@ function targetBand(score: number): TargetBand {
   return '280plus'
 }
 
-/** Base presets: (machine × band) → knobs. All point at Leaderboard genetics for v1. */
+/**
+ * Base presets: (machine x band) -> algo + knobs.
+ * Easy/low-power -> (1+λ); mid -> generational / leaderboard; hard/desktop -> ES / CMA-ES.
+ */
 const PRESETS: Record<MachineClass, Record<TargetBand, Preset>> = {
   phone: {
     lt150: {
-      algorithmId: DEFAULT_ALGORITHM_ID,
-      shared: { gamesPerFitness: 12, maxBots: 120, batchSize: 4, hidden1: 32, hidden2: 24, endStagnation: 800 },
-      algoParams: { ...DEFAULT_LEADERBOARD, seedCount: 40, k: 1.5 },
+      algorithmId: 'onePlusLambda',
+      shared: { gamesPerFitness: 12, maxBots: 80, batchSize: 4, hidden1: 32, hidden2: 24, endStagnation: 600 },
+      algoParams: { ...DEFAULT_ONE_PLUS_LAMBDA, lambda: 8, seedCount: 6 },
     },
     '150_220': {
-      algorithmId: DEFAULT_ALGORITHM_ID,
-      shared: { gamesPerFitness: 20, maxBots: 160, batchSize: 4, hidden1: 40, hidden2: 32, endStagnation: 1200 },
-      algoParams: { ...DEFAULT_LEADERBOARD, seedCount: 50, k: 1.6 },
+      algorithmId: 'onePlusLambda',
+      shared: { gamesPerFitness: 18, maxBots: 120, batchSize: 4, hidden1: 40, hidden2: 32, endStagnation: 900 },
+      algoParams: { ...DEFAULT_ONE_PLUS_LAMBDA, lambda: 12, seedCount: 8 },
     },
     '220_280': {
       algorithmId: DEFAULT_ALGORITHM_ID,
@@ -57,14 +64,14 @@ const PRESETS: Record<MachineClass, Record<TargetBand, Preset>> = {
   },
   laptop: {
     lt150: {
-      algorithmId: DEFAULT_ALGORITHM_ID,
-      shared: { gamesPerFitness: 20, maxBots: 250, batchSize: 8, hidden1: 48, hidden2: 36, endStagnation: 1200 },
-      algoParams: { ...DEFAULT_LEADERBOARD, seedCount: 60, k: 1.6 },
+      algorithmId: 'onePlusLambda',
+      shared: { gamesPerFitness: 20, maxBots: 200, batchSize: 8, hidden1: 48, hidden2: 36, endStagnation: 1000 },
+      algoParams: { ...DEFAULT_ONE_PLUS_LAMBDA, lambda: 16, seedCount: 8 },
     },
     '150_220': {
-      algorithmId: DEFAULT_ALGORITHM_ID,
+      algorithmId: 'generationalGa',
       shared: { gamesPerFitness: 30, maxBots: 350, batchSize: 12, hidden1: 56, hidden2: 40, endStagnation: 1600 },
-      algoParams: { ...DEFAULT_LEADERBOARD, seedCount: 80, k: 1.7 },
+      algoParams: { ...DEFAULT_GENERATIONAL_GA, popSize: 60, eliteCount: 4 },
     },
     '220_280': {
       algorithmId: DEFAULT_ALGORITHM_ID,
@@ -72,31 +79,31 @@ const PRESETS: Record<MachineClass, Record<TargetBand, Preset>> = {
       algoParams: { ...DEFAULT_LEADERBOARD, seedCount: 100, k: 1.8 },
     },
     '280plus': {
-      algorithmId: DEFAULT_ALGORITHM_ID,
-      shared: { gamesPerFitness: 50, maxBots: 500, batchSize: 16, hidden1: 64, hidden2: 48, endStagnation: 2500 },
-      algoParams: { ...DEFAULT_LEADERBOARD, seedCount: 120, k: 1.85, pMut: 0.0008 },
+      algorithmId: 'openAiEs',
+      shared: { gamesPerFitness: 48, maxBots: 500, batchSize: 16, hidden1: 64, hidden2: 48, endStagnation: 2500 },
+      algoParams: { ...DEFAULT_OPENAI_ES, population: 32, sigma: 0.02, learningRate: 0.01 },
     },
   },
   desktop: {
     lt150: {
-      algorithmId: DEFAULT_ALGORITHM_ID,
-      shared: { gamesPerFitness: 24, maxBots: 400, batchSize: 16, hidden1: 56, hidden2: 40, endStagnation: 1500 },
-      algoParams: { ...DEFAULT_LEADERBOARD, seedCount: 80, k: 1.6 },
+      algorithmId: 'onePlusLambda',
+      shared: { gamesPerFitness: 24, maxBots: 300, batchSize: 16, hidden1: 56, hidden2: 40, endStagnation: 1200 },
+      algoParams: { ...DEFAULT_ONE_PLUS_LAMBDA, lambda: 24, seedCount: 12 },
     },
     '150_220': {
-      algorithmId: DEFAULT_ALGORITHM_ID,
-      shared: { gamesPerFitness: 36, maxBots: 600, batchSize: 24, hidden1: 64, hidden2: 48, endStagnation: 2000 },
-      algoParams: { ...DEFAULT_LEADERBOARD, seedCount: 100, k: 1.75 },
+      algorithmId: 'generationalGa',
+      shared: { gamesPerFitness: 36, maxBots: 500, batchSize: 24, hidden1: 64, hidden2: 48, endStagnation: 2000 },
+      algoParams: { ...DEFAULT_GENERATIONAL_GA, popSize: 100, eliteCount: 6, tournamentSize: 4 },
     },
     '220_280': {
-      algorithmId: DEFAULT_ALGORITHM_ID,
-      shared: { gamesPerFitness: 48, maxBots: 800, batchSize: 32, hidden1: 72, hidden2: 56, endStagnation: 2500 },
-      algoParams: { ...DEFAULT_LEADERBOARD, seedCount: 120, k: 1.8 },
+      algorithmId: 'openAiEs',
+      shared: { gamesPerFitness: 48, maxBots: 700, batchSize: 32, hidden1: 64, hidden2: 48, endStagnation: 2500 },
+      algoParams: { ...DEFAULT_OPENAI_ES, population: 48, sigma: 0.02, learningRate: 0.012 },
     },
     '280plus': {
-      algorithmId: DEFAULT_ALGORITHM_ID,
-      shared: { gamesPerFitness: 64, maxBots: 1000, batchSize: 32, hidden1: 80, hidden2: 64, endStagnation: 3000 },
-      algoParams: { ...DEFAULT_LEADERBOARD, seedCount: 150, k: 1.9, pMut: 0.0008, mutSigma: 0.015 },
+      algorithmId: 'cmaEs',
+      shared: { gamesPerFitness: 56, maxBots: 800, batchSize: 32, hidden1: 48, hidden2: 36, endStagnation: 3000 },
+      algoParams: { ...DEFAULT_CMA_ES, lambda: 24, mu: 12, sigma: 0.15 },
     },
   },
 }
@@ -134,15 +141,12 @@ export function applyHardwareHeuristic(
     endTargetScore: Math.max(0, targetScore),
   }
 
-  // batchSize ≈ workers; leave a couple cores for UI
   const batchHint = clampInt(cores - 1, 2, machine === 'phone' ? 8 : machine === 'laptop' ? 24 : 48)
   shared.batchSize = clampInt((shared.batchSize + batchHint) / 2, 2, batchHint)
 
-  // Cap archive by RAM (~genome ~30KB at 64/48; be conservative)
   const maxByMem = clampInt(mem * 80, 80, machine === 'phone' ? 300 : machine === 'laptop' ? 800 : 2000)
   shared.maxBots = clampInt(Math.min(shared.maxBots, maxByMem), 40, maxByMem)
 
-  // Harder targets → slightly more games / longer stagnation
   if (targetScore >= 280) {
     shared.gamesPerFitness = clampInt(shared.gamesPerFitness * 1.1, 8, 80)
     shared.endStagnation = clampInt(shared.endStagnation * 1.15, 400, 8000)
@@ -150,19 +154,33 @@ export function applyHardwareHeuristic(
     shared.gamesPerFitness = clampInt(shared.gamesPerFitness * 0.9, 8, 80)
   }
 
-  // Shrink net on low memory
   if (mem <= 4) {
     shared.hidden1 = Math.min(shared.hidden1, 40)
     shared.hidden2 = Math.min(shared.hidden2, 32)
   }
 
+  // CMA-ES prefers smaller nets on all machines
+  if (preset.algorithmId === 'cmaEs') {
+    shared.hidden1 = Math.min(shared.hidden1, 48)
+    shared.hidden2 = Math.min(shared.hidden2, 36)
+  }
+
   const algoParams = { ...preset.algoParams }
   if (typeof algoParams.seedCount === 'number') {
-    algoParams.seedCount = clampInt(
-      Math.min(algoParams.seedCount, Math.floor(shared.maxBots * 0.4)),
-      10,
-      shared.maxBots,
-    )
+    const cap = Math.max(1, Math.floor(shared.maxBots * 0.4))
+    algoParams.seedCount = clampInt(Math.min(algoParams.seedCount, cap), 1, shared.maxBots)
+  }
+  if (typeof algoParams.popSize === 'number') {
+    algoParams.popSize = clampInt(Math.min(algoParams.popSize, shared.maxBots), 2, shared.maxBots)
+  }
+  if (typeof algoParams.population === 'number') {
+    let pop = clampInt(algoParams.population, 2, Math.max(2, shared.batchSize * 4))
+    if (pop % 2 !== 0) pop -= 1
+    if (pop < 2) pop = 2
+    algoParams.population = pop
+  }
+  if (typeof algoParams.lambda === 'number') {
+    algoParams.lambda = clampInt(algoParams.lambda, 1, Math.max(2, shared.batchSize * 4))
   }
 
   return { shared, algoParams }

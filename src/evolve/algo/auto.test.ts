@@ -9,12 +9,12 @@ describe('auto configure', () => {
     expect(detectMachine({ hardwareConcurrency: 16, deviceMemory: 32 })).toBe('desktop')
   })
 
-  it('returns clamped knobs for desktop high target', () => {
+  it('returns CMA-ES for desktop high target with clamped knobs', () => {
     const result = autoConfigure(300, 'desktop', {
       hardwareConcurrency: 16,
       deviceMemory: 32,
     })
-    expect(result.algorithmId).toBe(DEFAULT_ALGORITHM_ID)
+    expect(result.algorithmId).toBe('cmaEs')
     expect(result.machine).toBe('desktop')
     expect(result.targetBand).toBe('280plus')
     expect(result.shared.endTargetScore).toBe(300)
@@ -23,16 +23,26 @@ describe('auto configure', () => {
     expect(result.shared.batchSize).toBeGreaterThanOrEqual(2)
     expect(result.shared.batchSize).toBeLessThanOrEqual(48)
     expect(result.shared.gamesPerFitness).toBeGreaterThanOrEqual(8)
-    expect(result.algoParams.seedCount).toBeLessThanOrEqual(result.shared.maxBots)
+    expect(result.algoParams.lambda).toBeGreaterThanOrEqual(2)
   })
 
-  it('keeps phone archives small', () => {
+  it('picks (1+λ) for phone mid targets and keeps archives small', () => {
     const result = autoConfigure(200, 'phone', {
       hardwareConcurrency: 4,
       deviceMemory: 4,
     })
+    expect(result.algorithmId).toBe('onePlusLambda')
     expect(result.shared.maxBots).toBeLessThanOrEqual(300)
     expect(result.shared.batchSize).toBeLessThanOrEqual(8)
+  })
+
+  it('picks generational GA for laptop mid band', () => {
+    const result = autoConfigure(180, 'laptop', {
+      hardwareConcurrency: 8,
+      deviceMemory: 8,
+    })
+    expect(result.algorithmId).toBe('generationalGa')
+    expect(result.algoParams.popSize).toBeGreaterThanOrEqual(2)
   })
 
   it('heuristic never exceeds memory-based maxBots', () => {

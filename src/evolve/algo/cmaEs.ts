@@ -152,7 +152,7 @@ export class CmaEs implements Algorithm {
   private recomputeRates(): void {
     const n = Math.max(1, this.dim)
     const { weights, muEff } = logWeights(this.params.mu)
-    this.weights = weights
+    this.weights = new Float64Array(weights)
     this.muEff = muEff
     this.cSigma = (muEff + 2) / (n + muEff + 5)
     this.dSigma = 1 + 2 * Math.max(0, Math.sqrt((muEff - 1) / (n + 1)) - 1) + this.cSigma
