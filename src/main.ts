@@ -8,7 +8,33 @@ import {
 import { Orchestrator } from './evolve/orchestrator.ts'
 import { defaultShape, genomeLength, INPUT_SIZE, OUTPUT_SIZE } from './nn/index.ts'
 import { DashboardCharts } from './ui/charts.ts'
+import { iconBtn, icons } from './ui/icons.ts'
 import { downloadJson, loadCheckpoint, saveCheckpoint } from './store/idb.ts'
+
+type PaneId = 'fitness' | 'hist' | 'console' | 'table'
+type SortKey = 'id' | 'fitness' | 'parentA' | 'parentB' | 'games'
+type BotRow = {
+  id: number
+  fitness: number
+  parentA: number | null
+  parentB: number | null
+  gameScores: number[]
+}
+
+const FOCUS_CLASSES = [
+  'focus-fitness',
+  'focus-hist',
+  'focus-console',
+  'focus-table',
+] as const
+
+const SORT_COLUMNS: { key: SortKey; label: string }[] = [
+  { key: 'id', label: 'Bot' },
+  { key: 'fitness', label: 'Score' },
+  { key: 'parentA', label: 'Parent A' },
+  { key: 'parentB', label: 'Parent B' },
+  { key: 'games', label: 'Games' },
+]
 
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -30,40 +56,83 @@ function numInput(id: string, label: string, value: number, step = 'any', span2 
   return lab
 }
 
+function makePane(
+  id: PaneId,
+  title: string,
+  body: HTMLElement,
+): { pane: HTMLElement; maxBtn: HTMLButtonElement } {
+  const maxBtn = el('button', {
+    class: 'bevel pane-max',
+    type: 'button',
+    title: 'Maximize',
+    'aria-label': `Maximize ${title}`,
+  })
+  maxBtn.append(icons.maximize())
+
+  const header = el('div', { class: 'pane-header' }, [
+    el('span', {}, [title]),
+    maxBtn,
+  ])
+  const bodyWrap = el('div', { class: 'pane-body' }, [body])
+  const pane = el('div', { class: 'pane', 'data-pane': id }, [header, bodyWrap])
+  return { pane, maxBtn }
+}
+
 const app = document.querySelector<HTMLDivElement>('#app')!
 app.innerHTML = ''
 
-app.append(
-  el('div', { class: 'badge-strip' }, [
-    el('span', { class: 'badge' }, ['JS / Workers']),
-    el('span', { class: 'badge' }, ['Win98–XP energy']),
-    el('span', { class: 'badge' }, ['Bonus disc util']),
-    el('span', { class: 'badge' }, ['Not affiliated']),
-  ]),
-)
-
 const hero = el('header', { class: 'hero' }, [
-  el('div', {}, [
+  el('div', { class: 'hero-copy' }, [
     el('h1', {}, ['DiceLab']),
-    el('div', { class: 'tag' }, [
-      'Neuroevolution trainer for solitaire dice scoring. Append-only lottery population. Function first.',
+    el('p', { class: 'tag' }, [
+      'Breed tiny nets that play Yahtzee. Twist the knobs, hit Run, watch the scores climb.',
     ]),
   ]),
 ])
 app.append(hero)
 
+const about = el('details', { class: 'about' }, [
+  el('summary', {}, ['How it works']),
+  el('div', { class: 'about-body' }, [
+    el('p', {}, [
+      'Each bot plays a few full games; its fitness is the average score. You start with a pool of random seeds. New bots are children of two parents, with a chance of mutation.',
+    ]),
+    el('p', {}, [
+      'Parents are drawn by lottery: tickets = score^k (k between 1 and 2). Higher scores win more tickets, but nobody is culled until you hit max bots. Old bots stay in the pool, so ticket totals only grow.',
+    ]),
+    el('p', {}, [
+      'Everything runs in your browser (web workers). The console and charts refresh as each bot finishes. Save a checkpoint to IndexedDB, or export JSON.',
+    ]),
+    el('p', { class: 'about-note' }, [
+      'Not affiliated with Hasbro, General Mills, or any brand. Public-domain game mechanics; original UI.',
+    ]),
+  ]),
+])
+app.append(about)
+
 const layout = el('div', { class: 'layout' })
 app.append(layout)
 
-const setupPanel = el('section', { class: 'panel' })
-const mainPanel = el('section', { class: 'panel' })
+const setupPanel = el('section', { class: 'panel setup-panel' })
+const mainPanel = el('section', { class: 'panel main-panel' })
 layout.append(setupPanel, mainPanel)
 
-setupPanel.append(el('h2', {}, ['Setup parameters']))
+const setupRail = el('button', {
+  class: 'setup-rail',
+  type: 'button',
+  title: 'Open setup',
+  'aria-label': 'Open setup',
+})
+setupRail.append(icons.setup(), document.createTextNode('Setup'))
+
+const setupInner = el('div', { class: 'setup-panel-inner' })
+setupPanel.append(setupRail, setupInner)
+
+setupInner.append(el('h2', {}, ['Setup']))
 
 const form = el('div', { class: 'form-grid' })
 const fields = {
-  k: numInput('k', 'Lottery k (1–2)', DEFAULT_PARAMS.k, '0.05'),
+  k: numInput('k', 'Lottery k (1-2)', DEFAULT_PARAMS.k, '0.05'),
   seedCount: numInput('seedCount', 'Seed bots', DEFAULT_PARAMS.seedCount, '1'),
   gamesPerFitness: numInput('gamesPerFitness', 'Games / fitness', DEFAULT_PARAMS.gamesPerFitness, '1'),
   pMut: numInput('pMut', 'Mutation chance', DEFAULT_PARAMS.pMut, '0.01'),
@@ -77,61 +146,129 @@ const fields = {
   batchSize: numInput('batchSize', 'Eval batch size', DEFAULT_PARAMS.batchSize, '1'),
 }
 for (const f of Object.values(fields)) form.append(f)
-setupPanel.append(form)
+setupInner.append(form)
 
 const spaceHint = el('p', { class: 'hint', id: 'spaceHint' }, [''])
-setupPanel.append(spaceHint)
+setupInner.append(spaceHint)
 
-const btnRow = el('div', { class: 'btn-row' })
-const runBtn = el('button', { class: 'bevel primary', type: 'button' }, ['Run'])
-const pauseBtn = el('button', { class: 'bevel', type: 'button' }, ['Pause'])
-const resetBtn = el('button', { class: 'bevel', type: 'button' }, ['Reset'])
-const saveBtn = el('button', { class: 'bevel', type: 'button' }, ['Save'])
-const loadBtn = el('button', { class: 'bevel', type: 'button' }, ['Load'])
-const exportBtn = el('button', { class: 'bevel', type: 'button' }, ['Export JSON'])
-btnRow.append(runBtn, pauseBtn, resetBtn, saveBtn, loadBtn, exportBtn)
-setupPanel.append(btnRow)
+const setupBtnRow = el('div', { class: 'btn-row' })
+const saveBtn = iconBtn('', 'save', 'Save')
+const loadBtn = iconBtn('', 'load', 'Load')
+const exportBtn = iconBtn('', 'export', 'Export JSON')
+setupBtnRow.append(saveBtn, loadBtn, exportBtn)
+setupInner.append(setupBtnRow)
 
-mainPanel.append(el('h2', {}, ['Live overview']))
+const toolbar = el('div', { class: 'toolbar' })
+const setupToggleBtn = iconBtn('', 'setup', 'Setup', { title: 'Toggle setup panel' })
+const runBtn = iconBtn('', 'play', 'Run', { primary: true })
+const pauseBtn = iconBtn('', 'pause', 'Pause')
+const resetBtn = iconBtn('', 'reset', 'Reset')
+toolbar.append(setupToggleBtn, runBtn, pauseBtn, resetBtn)
+mainPanel.append(toolbar)
+
 const statsBar = el('div', { class: 'stats-bar' }, [
   el('span', {}, ['Created: ', el('b', { id: 'statCreated' }, ['0'])]),
   el('span', {}, ['Pop: ', el('b', { id: 'statPop' }, ['0'])]),
-  el('span', {}, ['Best: ', el('b', { id: 'statBest' }, ['—'])]),
+  el('span', {}, ['Best: ', el('b', { id: 'statBest' }, ['-'])]),
   el('span', {}, ['Status: ', el('b', { id: 'statStatus' }, ['idle'])]),
 ])
 mainPanel.append(statsBar)
 
-const chartsDiv = el('div', { class: 'charts' })
+const workspace = el('div', { class: 'workspace' })
+mainPanel.append(workspace)
+
 const lineBox = el('div', { class: 'chart-box' })
 const histBox = el('div', { class: 'chart-box' })
 const lineCanvas = el('canvas')
 const histCanvas = el('canvas')
 lineBox.append(lineCanvas)
 histBox.append(histCanvas)
-chartsDiv.append(lineBox, histBox)
-mainPanel.append(chartsDiv)
 
 const consoleEl = el('div', { class: 'console', id: 'console' }, ['Ready.\n'])
-mainPanel.append(consoleEl)
 
 const tableWrap = el('div', { class: 'table-wrap' })
 const table = el('table', { class: 'bots' })
-table.innerHTML =
-  '<thead><tr><th>Bot</th><th>Score</th><th>Parent A</th><th>Parent B</th><th>Games</th></tr></thead>'
+const theadRow = el('tr')
+const sortHeaders = new Map<SortKey, HTMLTableCellElement>()
+for (const col of SORT_COLUMNS) {
+  const th = el('th', { scope: 'col' })
+  const btn = el('button', { type: 'button' }, [col.label])
+  btn.addEventListener('click', () => setSort(col.key))
+  th.append(btn)
+  theadRow.append(th)
+  sortHeaders.set(col.key, th)
+}
+const thead = el('thead', {}, [theadRow])
 const tbody = el('tbody')
-table.append(tbody)
+table.append(thead, tbody)
 tableWrap.append(table)
-mainPanel.append(tableWrap)
 
-app.append(
-  el('p', { class: 'disclaimer' }, [
-    'Unofficial fan experiment. Not affiliated with Hasbro, General Mills, or any toy/cereal brand. Dice scoring rules are public-domain game mechanics.',
-  ]),
-)
+let tableRows: BotRow[] = []
+let sortKey: SortKey = 'fitness'
+let sortDir: 1 | -1 = -1
+
+const fitnessPane = makePane('fitness', 'Fitness', lineBox)
+const histPane = makePane('hist', 'Score buckets', histBox)
+const consolePane = makePane('console', 'Terminal', consoleEl)
+const tablePane = makePane('table', 'Bots', tableWrap)
+workspace.append(fitnessPane.pane, histPane.pane, consolePane.pane, tablePane.pane)
+
+const paneMaxBtns: Record<PaneId, HTMLButtonElement> = {
+  fitness: fitnessPane.maxBtn,
+  hist: histPane.maxBtn,
+  console: consolePane.maxBtn,
+  table: tablePane.maxBtn,
+}
 
 const charts = new DashboardCharts(lineCanvas, histCanvas)
 let orch = new Orchestrator(DEFAULT_PARAMS)
 let unsub: (() => void) | null = null
+let focusedPane: PaneId | null = null
+
+function scheduleChartResize(): void {
+  requestAnimationFrame(() => {
+    charts.resize()
+    requestAnimationFrame(() => charts.resize())
+  })
+}
+
+function setSetupCollapsed(collapsed: boolean): void {
+  layout.classList.toggle('setup-collapsed', collapsed)
+  setupToggleBtn.setAttribute('aria-pressed', collapsed ? 'false' : 'true')
+  scheduleChartResize()
+}
+
+function toggleSetup(): void {
+  setSetupCollapsed(!layout.classList.contains('setup-collapsed'))
+}
+
+function setFocusedPane(id: PaneId | null): void {
+  focusedPane = id
+  for (const cls of FOCUS_CLASSES) workspace.classList.remove(cls)
+  if (id) workspace.classList.add(`focus-${id}`)
+
+  for (const [paneId, btn] of Object.entries(paneMaxBtns) as [PaneId, HTMLButtonElement][]) {
+    const focused = paneId === id
+    const label = focused ? 'Restore' : 'Maximize'
+    btn.replaceChildren(icons[focused ? 'restore' : 'maximize']())
+    btn.title = label
+    btn.setAttribute('aria-label', `${label} ${paneId}`)
+  }
+  scheduleChartResize()
+}
+
+function togglePaneFocus(id: PaneId): void {
+  setFocusedPane(focusedPane === id ? null : id)
+}
+
+for (const [id, btn] of Object.entries(paneMaxBtns) as [PaneId, HTMLButtonElement][]) {
+  btn.addEventListener('click', () => togglePaneFocus(id))
+}
+
+setupToggleBtn.addEventListener('click', toggleSetup)
+setupRail.addEventListener('click', () => setSetupCollapsed(false))
+
+new ResizeObserver(() => charts.resize()).observe(workspace)
 
 function readParams(): EvolveParams {
   const g = (id: keyof typeof fields) => Number((fields[id].querySelector('input') as HTMLInputElement).value)
@@ -156,7 +293,7 @@ function updateSpaceHint(): void {
   const shape = defaultShape(INPUT_SIZE, OUTPUT_SIZE, p.hidden1, p.hidden2)
   const glen = genomeLength(shape)
   const bytes = estimateStorageBytes(glen, p.maxBots)
-  spaceHint.textContent = `Genome ${glen} floats (${formatBytes(glen * 4)}/bot). At maxBots=${p.maxBots}: ~${formatBytes(bytes)} (genomes + row overhead). Prune starts above maxBots.`
+  spaceHint.textContent = `~${formatBytes(glen * 4)} per bot (${glen} weights). Cap ${p.maxBots} bots: ~${formatBytes(bytes)}. Prune kicks in above the cap.`
 }
 
 for (const f of Object.values(fields)) {
@@ -169,23 +306,67 @@ function appendLog(line: string): void {
   consoleEl.scrollTop = consoleEl.scrollHeight
 }
 
-function prependRow(bot: {
-  id: number
-  fitness: number
-  parentA: number | null
-  parentB: number | null
-  gameScores: number[]
-}): void {
-  const tr = el('tr', {}, [
-    el('td', {}, [String(bot.id)]),
-    el('td', {}, [bot.fitness.toFixed(1)]),
-    el('td', {}, [bot.parentA === null ? '—' : String(bot.parentA)]),
-    el('td', {}, [bot.parentB === null ? '—' : String(bot.parentB)]),
-    el('td', {}, [bot.gameScores.map((x) => x.toFixed(0)).join(', ')]),
-  ])
-  tbody.insertBefore(tr, tbody.firstChild)
-  while (tbody.children.length > 500) tbody.removeChild(tbody.lastChild!)
+function sortValue(bot: BotRow, key: SortKey): number {
+  if (key === 'id') return bot.id
+  if (key === 'fitness') return bot.fitness
+  if (key === 'parentA') return bot.parentA ?? -1
+  if (key === 'parentB') return bot.parentB ?? -1
+  if (bot.gameScores.length === 0) return -1
+  let sum = 0
+  for (const s of bot.gameScores) sum += s
+  return sum / bot.gameScores.length
 }
+
+function updateSortHeaders(): void {
+  for (const [key, th] of sortHeaders) {
+    if (key === sortKey) {
+      th.setAttribute('aria-sort', sortDir < 0 ? 'descending' : 'ascending')
+    } else {
+      th.removeAttribute('aria-sort')
+    }
+  }
+}
+
+function renderTable(): void {
+  const sorted = tableRows.slice().sort((a, b) => {
+    const d = (sortValue(a, sortKey) - sortValue(b, sortKey)) * sortDir
+    return d !== 0 ? d : (b.id - a.id)
+  })
+  tbody.replaceChildren(
+    ...sorted.map((bot) =>
+      el('tr', {}, [
+        el('td', {}, [String(bot.id)]),
+        el('td', {}, [bot.fitness.toFixed(1)]),
+        el('td', {}, [bot.parentA === null ? '-' : String(bot.parentA)]),
+        el('td', {}, [bot.parentB === null ? '-' : String(bot.parentB)]),
+        el('td', {}, [bot.gameScores.map((x) => x.toFixed(0)).join(', ')]),
+      ]),
+    ),
+  )
+  updateSortHeaders()
+}
+
+function clearTableRows(): void {
+  tableRows = []
+  renderTable()
+}
+
+function addTableRow(bot: BotRow): void {
+  tableRows.push(bot)
+  if (tableRows.length > 500) tableRows = tableRows.slice(-500)
+  renderTable()
+}
+
+function setSort(key: SortKey): void {
+  if (sortKey === key) sortDir = sortDir < 0 ? 1 : -1
+  else {
+    sortKey = key
+    sortDir = -1
+  }
+  renderTable()
+}
+
+updateSortHeaders()
 
 function wireOrch(): void {
   unsub?.()
@@ -193,7 +374,7 @@ function wireOrch(): void {
     if (e.type === 'log') appendLog(e.line)
     if (e.type === 'bot') {
       charts.addBot(e.bot.id, e.bot.fitness)
-      prependRow(e.bot)
+      addTableRow(e.bot)
     }
     if (e.type === 'stats') {
       ;(document.getElementById('statCreated') as HTMLElement).textContent = String(e.created)
@@ -225,9 +406,10 @@ runBtn.addEventListener('click', () => {
   if (orch.pop.bots.length === 0) {
     orch.configure(p)
     charts.reset()
-    tbody.innerHTML = ''
+    clearTableRows()
     consoleEl.textContent = ''
   }
+  setSetupCollapsed(true)
   void orch.start()
 })
 
@@ -238,13 +420,14 @@ resetBtn.addEventListener('click', () => {
   orch = new Orchestrator(readParams())
   wireOrch()
   charts.reset()
-  tbody.innerHTML = ''
+  clearTableRows()
   consoleEl.textContent = 'Reset.\n'
   ;(document.getElementById('statCreated') as HTMLElement).textContent = '0'
   ;(document.getElementById('statPop') as HTMLElement).textContent = '0'
-  ;(document.getElementById('statBest') as HTMLElement).textContent = '—'
+  ;(document.getElementById('statBest') as HTMLElement).textContent = '-'
   ;(document.getElementById('statStatus') as HTMLElement).textContent = 'idle'
   runBtn.disabled = false
+  pauseBtn.disabled = true
   setFormDisabled(false)
 })
 
@@ -263,11 +446,13 @@ loadBtn.addEventListener('click', () => {
     orch.pop.loadSerialized(data as Parameters<typeof orch.pop.loadSerialized>[0])
     wireOrch()
     charts.reset()
-    tbody.innerHTML = ''
+    tableRows = []
     for (const b of orch.pop.bots) {
       charts.addBot(b.id, b.fitness)
-      prependRow(b)
+      tableRows.push(b)
     }
+    if (tableRows.length > 500) tableRows = tableRows.slice(-500)
+    renderTable()
     appendLog(`Loaded ${orch.pop.bots.length} bots from IndexedDB.`)
     ;(document.getElementById('statCreated') as HTMLElement).textContent = String(orch.pop.nextId - 1)
     ;(document.getElementById('statPop') as HTMLElement).textContent = String(orch.pop.bots.length)
@@ -282,3 +467,5 @@ exportBtn.addEventListener('click', () => {
 })
 
 pauseBtn.disabled = true
+setupToggleBtn.setAttribute('aria-pressed', 'true')
+scheduleChartResize()

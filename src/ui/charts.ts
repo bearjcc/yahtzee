@@ -99,6 +99,11 @@ export class DashboardCharts {
     this.hist = new Chart(histCanvas, histCfg)
   }
 
+  resize(): void {
+    this.line.resize()
+    this.hist.resize()
+  }
+
   reset(): void {
     this.ids = []
     this.scores = []

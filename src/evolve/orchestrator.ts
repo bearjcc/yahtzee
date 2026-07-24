@@ -46,7 +46,7 @@ export class Orchestrator {
     this.paused = false
     this.pool = new WorkerPool()
     this.emit({ type: 'status', running: true })
-    this.log(`Run start — workers ${this.pool.size}, seeds ${this.pop.params.seedCount}`)
+    this.log(`Run start - workers ${this.pool.size}, seeds ${this.pop.params.seedCount}`)
 
     try {
       if (this.pop.bots.length === 0) {
