@@ -52,6 +52,7 @@ describe('replayBotGames', () => {
       parentB: null,
       genome,
       tickets: 1,
+      meta: {},
     }
     const replay = replayBotGames(bot, shape)
     expect(replay.matched).toBe(true)
@@ -75,6 +76,7 @@ describe('replayBotGames', () => {
       parentB: botMeta.parentB,
       genome,
       tickets: 1,
+      meta: {},
     }
     const replay = replayBotGames(bot, shape)
     expect(replay.matched).toBe(true)
