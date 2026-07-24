@@ -13,6 +13,7 @@
   --console-fg: #b8f06e;
   --muted: #5a4a38;
   --setup-w: 300px;
+  --sheet-w: 380px;
   --rail-w: 28px;
   font-family: 'IBM Plex Sans', Tahoma, Geneva, sans-serif;
   color: var(--ink);
@@ -143,16 +144,21 @@ body {
 
 .layout {
   --setup-w: 300px;
+  --sheet-w: 380px;
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
-  grid-template-columns: var(--setup-w) 1fr;
+  grid-template-columns: var(--setup-w) 1fr var(--sheet-w);
   gap: 8px;
   transition: grid-template-columns 0.22s ease;
 }
 
 .layout.setup-collapsed {
   --setup-w: var(--rail-w);
+}
+
+.layout.sheet-collapsed {
+  --sheet-w: var(--rail-w);
 }
 
 .setup-panel {
@@ -216,6 +222,66 @@ body {
 
 .layout.setup-collapsed .setup-panel-inner {
   display: none;
+}
+
+.sheet-panel {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  transition: opacity 0.18s ease;
+}
+
+.sheet-panel-inner {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px 12px;
+  overflow: hidden;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  opacity: 1;
+  transition: opacity 0.15s ease;
+}
+
+.layout.sheet-collapsed .sheet-panel-inner {
+  opacity: 0;
+  pointer-events: none;
+  display: none;
+}
+
+.sheet-rail {
+  display: none;
+  writing-mode: vertical-rl;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  height: 100%;
+  padding: 8px 0;
+  border: none;
+  cursor: pointer;
+  font-family: 'IBM Plex Sans', Tahoma, sans-serif;
+  font-weight: 700;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: linear-gradient(180deg, #ffe98a 0%, #e0a010 55%, #c48408 100%);
+  box-shadow: inset 0 2px 0 #fff8;
+}
+
+.sheet-rail .icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+
+.layout.sheet-collapsed .sheet-rail {
+  display: flex;
 }
 
 .main-panel {
@@ -394,23 +460,17 @@ button.pane-max .icon {
   gap: 8px;
 }
 
-.workspace .pane[data-pane='sheet'] {
-  display: none;
-}
-
 .workspace.focus-fitness .pane:not([data-pane='fitness']),
 .workspace.focus-hist .pane:not([data-pane='hist']),
 .workspace.focus-console .pane:not([data-pane='console']),
-.workspace.focus-table .pane:not([data-pane='table']),
-.workspace.focus-sheet .pane:not([data-pane='sheet']) {
+.workspace.focus-table .pane:not([data-pane='table']) {
   display: none;
 }
 
 .workspace.focus-fitness .pane[data-pane='fitness'],
 .workspace.focus-hist .pane[data-pane='hist'],
 .workspace.focus-console .pane[data-pane='console'],
-.workspace.focus-table .pane[data-pane='table'],
-.workspace.focus-sheet .pane[data-pane='sheet'] {
+.workspace.focus-table .pane[data-pane='table'] {
   display: flex;
   grid-column: 1 / -1;
   grid-row: 1 / -1;
@@ -549,7 +609,7 @@ table.bots tr:nth-child(even) td {
   min-height: 0;
   overflow: auto;
   background: var(--cream);
-  padding: 8px 10px 12px;
+  padding: 4px 0 0;
 }
 
 .scoresheet-empty {
@@ -583,8 +643,10 @@ table.bots tr:nth-child(even) td {
 }
 
 .scoresheet-table {
-  width: 100%;
+  width: max-content;
+  max-width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
   background: #fff;
   font-family: 'IBM Plex Sans', Tahoma, sans-serif;
   font-size: 0.72rem;
@@ -607,22 +669,14 @@ table.bots tr:nth-child(even) td {
   text-align: left;
   font-weight: 700;
   white-space: nowrap;
-  width: 9.5rem;
-}
-
-.scoresheet-table .how {
-  text-align: left;
-  color: var(--muted);
-  font-size: 0.68rem;
-  min-width: 9rem;
+  width: 8.5rem;
 }
 
 .scoresheet-table .score {
   text-align: center;
   font-family: 'IBM Plex Mono', Consolas, monospace;
   font-weight: 600;
-  width: 3.4rem;
-  min-width: 2.8rem;
+  width: 2.6rem;
 }
 
 .scoresheet-table .score.empty {

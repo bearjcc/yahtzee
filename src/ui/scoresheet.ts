@@ -12,23 +12,23 @@ import {
 
 const SHEET_GAMES = 6
 
-const UPPER_LABELS: Record<(typeof UPPER_SECTION)[number], { name: string; how: string }> = {
-  aces: { name: 'Aces', how: 'Count and Add Only Aces' },
-  twos: { name: 'Twos', how: 'Count and Add Only Twos' },
-  threes: { name: 'Threes', how: 'Count and Add Only Threes' },
-  fours: { name: 'Fours', how: 'Count and Add Only Fours' },
-  fives: { name: 'Fives', how: 'Count and Add Only Fives' },
-  sixes: { name: 'Sixes', how: 'Count and Add Only Sixes' },
+const UPPER_LABELS: Record<(typeof UPPER_SECTION)[number], string> = {
+  aces: 'Aces',
+  twos: 'Twos',
+  threes: 'Threes',
+  fours: 'Fours',
+  fives: 'Fives',
+  sixes: 'Sixes',
 }
 
-const LOWER_LABELS: Record<(typeof LOWER_SECTION)[number], { name: string; how: string }> = {
-  threeOfAKind: { name: '3 of a Kind', how: 'Add Total of All Dice' },
-  fourOfAKind: { name: '4 of a Kind', how: 'Add Total of All Dice' },
-  fullHouse: { name: 'Full House', how: 'SCORE 25' },
-  smallStraight: { name: 'Sm Straight', how: 'SCORE 30' },
-  largeStraight: { name: 'Lg Straight', how: 'SCORE 40' },
-  yahtzee: { name: 'YAHTZEE', how: 'SCORE 50' },
-  chance: { name: 'Chance', how: 'Add Total of All Dice' },
+const LOWER_LABELS: Record<(typeof LOWER_SECTION)[number], string> = {
+  threeOfAKind: '3 of a Kind',
+  fourOfAKind: '4 of a Kind',
+  fullHouse: 'Full House',
+  smallStraight: 'Sm Straight',
+  largeStraight: 'Lg Straight',
+  yahtzee: 'YAHTZEE',
+  chance: 'Chance',
 }
 
 export type ScoresheetView = {
@@ -79,14 +79,22 @@ function totalCells(values: (number | null)[]): HTMLTableCellElement[] {
 
 function row(
   label: string,
-  how: string,
   scoreCells: HTMLTableCellElement[],
   opts: { section?: string; strong?: boolean } = {},
 ): HTMLTableRowElement {
   const tr = document.createElement('tr')
   if (opts.section) tr.className = opts.section
   if (opts.strong) tr.classList.add('strong')
-  tr.append(th(label, 'cat', 'row'), cell(how, 'how'), ...scoreCells)
+  tr.append(th(label, 'cat', 'row'), ...scoreCells)
+  return tr
+}
+
+function sectionHeader(label: string): HTMLTableRowElement {
+  const tr = document.createElement('tr')
+  tr.className = 'section-label'
+  const h = th(label, 'section', 'row')
+  h.colSpan = 1 + SHEET_GAMES
+  tr.append(h)
   return tr
 }
 
@@ -124,24 +132,16 @@ export function renderScoresheet(host: HTMLElement, view: ScoresheetView | null)
   const headRow = document.createElement('tr')
   headRow.append(
     th(''),
-    th('How to Score', 'how'),
-    ...Array.from({ length: SHEET_GAMES }, (_, i) => th(`Game #${i + 1}`, 'score')),
+    ...Array.from({ length: SHEET_GAMES }, (_, i) => th(`#${i + 1}`, 'score')),
   )
   thead.append(headRow)
   table.append(thead)
 
   const tbody = document.createElement('tbody')
-
-  const upperHdr = document.createElement('tr')
-  upperHdr.className = 'section-label'
-  const uh = th('UPPER SECTION', 'section', 'row')
-  uh.colSpan = 2 + SHEET_GAMES
-  upperHdr.append(uh)
-  tbody.append(upperHdr)
+  tbody.append(sectionHeader('UPPER SECTION'))
 
   for (const cat of UPPER_SECTION) {
-    const meta = UPPER_LABELS[cat]
-    tbody.append(row(meta.name, meta.how, categoryCells(games, cat)))
+    tbody.append(row(UPPER_LABELS[cat], categoryCells(games, cat)))
   }
 
   const upperTotals = games.map((g) => upperTotal(g.scorecard))
@@ -151,44 +151,34 @@ export function renderScoresheet(host: HTMLElement, view: ScoresheetView | null)
   const upperWithBonus = upperTotals.map((u, i) => u + (bonuses[i] ?? 0))
 
   tbody.append(
-    row('Total Score', '', totalCells(pad(upperTotals, shown)), { strong: true }),
-    row(
-      `Bonus if total score is ${UPPER_BONUS_THRESHOLD} or over`,
-      `Score ${UPPER_BONUS_POINTS}`,
-      totalCells(pad(bonuses, shown)),
-    ),
-    row('Total of Upper Section', '', totalCells(pad(upperWithBonus, shown)), {
+    row('Total Score', totalCells(pad(upperTotals, shown)), { strong: true }),
+    row(`Bonus (≥${UPPER_BONUS_THRESHOLD})`, totalCells(pad(bonuses, shown))),
+    row('Total of Upper Section', totalCells(pad(upperWithBonus, shown)), {
       strong: true,
       section: 'subtotal',
     }),
   )
 
-  const lowerHdr = document.createElement('tr')
-  lowerHdr.className = 'section-label'
-  const lh = th('LOWER SECTION', 'section', 'row')
-  lh.colSpan = 2 + SHEET_GAMES
-  lowerHdr.append(lh)
-  tbody.append(lowerHdr)
+  tbody.append(sectionHeader('LOWER SECTION'))
 
   for (const cat of LOWER_SECTION) {
-    const meta = LOWER_LABELS[cat]
-    tbody.append(row(meta.name, meta.how, categoryCells(games, cat)))
+    tbody.append(row(LOWER_LABELS[cat], categoryCells(games, cat)))
   }
 
   const yahtzeeBonusPts = games.map((g) => g.yahtzeeBonuses * YAHTZEE_BONUS_CHIP)
   const lowerTotals = games.map((g, i) => lowerTotal(g.scorecard) + (yahtzeeBonusPts[i] ?? 0))
 
   tbody.append(
-    row('YAHTZEE BONUS', `SCORE ${YAHTZEE_BONUS_CHIP} PER BONUS`, totalCells(pad(yahtzeeBonusPts, shown))),
-    row('Total of Lower Section', '', totalCells(pad(lowerTotals, shown)), {
+    row('YAHTZEE BONUS', totalCells(pad(yahtzeeBonusPts, shown))),
+    row('Total of Lower Section', totalCells(pad(lowerTotals, shown)), {
       strong: true,
       section: 'subtotal',
     }),
-    row('Total of Upper Section', '', totalCells(pad(upperWithBonus, shown)), {
+    row('Total of Upper Section', totalCells(pad(upperWithBonus, shown)), {
       strong: true,
       section: 'subtotal',
     }),
-    row('GRAND TOTAL', '', totalCells(pad(games.map((g) => g.total), shown)), {
+    row('GRAND TOTAL', totalCells(pad(games.map((g) => g.total), shown)), {
       strong: true,
       section: 'grand',
     }),

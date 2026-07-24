@@ -13,7 +13,7 @@ import { iconBtn, icons } from './ui/icons.ts'
 import { renderScoresheet, SCORESHEET_GAME_COLS } from './ui/scoresheet.ts'
 import { downloadJson, loadCheckpoint, saveCheckpoint } from './store/idb.ts'
 
-type PaneId = 'fitness' | 'hist' | 'console' | 'table' | 'sheet'
+type PaneId = 'fitness' | 'hist' | 'console' | 'table'
 type SortKey = 'id' | 'fitness' | 'parentA' | 'parentB' | 'games'
 type BotRow = {
   id: number
@@ -28,7 +28,6 @@ const FOCUS_CLASSES = [
   'focus-hist',
   'focus-console',
   'focus-table',
-  'focus-sheet',
 ] as const
 
 const SORT_COLUMNS: { key: SortKey; label: string }[] = [
@@ -122,7 +121,9 @@ app.append(layout)
 
 const setupPanel = el('section', { class: 'panel setup-panel' })
 const mainPanel = el('section', { class: 'panel main-panel' })
-layout.append(setupPanel, mainPanel)
+const sheetPanel = el('section', { class: 'panel sheet-panel' })
+layout.append(setupPanel, mainPanel, sheetPanel)
+layout.classList.add('sheet-collapsed')
 
 const setupRail = el('button', {
   class: 'setup-rail',
@@ -170,10 +171,25 @@ const setupToggleBtn = iconBtn('', 'setup', 'Setup', { title: 'Toggle setup pane
 const runBtn = iconBtn('', 'play', 'Run', { primary: true })
 const pauseBtn = iconBtn('', 'pause', 'Pause')
 const resetBtn = iconBtn('', 'reset', 'Reset')
-const sheetBtn = iconBtn('', 'sheet', 'Sheet', { title: 'Top bot scoresheet' })
-sheetBtn.disabled = true
+const sheetBtn = iconBtn('', 'sheet', 'Sheet', { title: 'Toggle scoresheet panel' })
 toolbar.append(setupToggleBtn, runBtn, pauseBtn, resetBtn, sheetBtn)
 mainPanel.append(toolbar)
+
+const sheetRail = el('button', {
+  class: 'sheet-rail',
+  type: 'button',
+  title: 'Open scoresheet',
+  'aria-label': 'Open scoresheet',
+})
+sheetRail.append(icons.sheet(), document.createTextNode('Sheet'))
+
+const sheetInner = el('div', { class: 'sheet-panel-inner' })
+sheetPanel.append(sheetInner, sheetRail)
+sheetInner.append(el('h2', {}, ['Scoresheet']))
+
+const scoresheetHost = el('div', { class: 'scoresheet-host' })
+renderScoresheet(scoresheetHost, null)
+sheetInner.append(scoresheetHost)
 
 const statsBar = el('div', { class: 'stats-bar' }, [
   el('span', {}, ['Created: ', el('b', { id: 'statCreated' }, ['0'])]),
@@ -222,20 +238,15 @@ let pendingStats: { created: number; best: number; bestId: number; popSize: numb
 let flushTimer: ReturnType<typeof setInterval> | null = null
 let consoleRaf: number | null = null
 
-const scoresheetHost = el('div', { class: 'scoresheet-host' })
-renderScoresheet(scoresheetHost, null)
-
 const fitnessPane = makePane('fitness', 'Fitness', lineBox)
 const histPane = makePane('hist', 'Score buckets', histBox)
 const consolePane = makePane('console', 'Terminal', consoleEl)
 const tablePane = makePane('table', 'Top 50', tableWrap)
-const sheetPane = makePane('sheet', 'Scoresheet', scoresheetHost)
 workspace.append(
   fitnessPane.pane,
   histPane.pane,
   consolePane.pane,
   tablePane.pane,
-  sheetPane.pane,
 )
 
 const paneMaxBtns: Record<PaneId, HTMLButtonElement> = {
@@ -243,7 +254,6 @@ const paneMaxBtns: Record<PaneId, HTMLButtonElement> = {
   hist: histPane.maxBtn,
   console: consolePane.maxBtn,
   table: tablePane.maxBtn,
-  sheet: sheetPane.maxBtn,
 }
 
 let sheetBestId = 0
@@ -268,6 +278,21 @@ function setSetupCollapsed(collapsed: boolean): void {
 
 function toggleSetup(): void {
   setSetupCollapsed(!layout.classList.contains('setup-collapsed'))
+}
+
+function isSheetCollapsed(): boolean {
+  return layout.classList.contains('sheet-collapsed')
+}
+
+function setSheetCollapsed(collapsed: boolean): void {
+  layout.classList.toggle('sheet-collapsed', collapsed)
+  sheetBtn.setAttribute('aria-pressed', collapsed ? 'false' : 'true')
+  scheduleChartResize()
+  if (!collapsed) refreshScoresheet(true)
+}
+
+function toggleSheet(): void {
+  setSheetCollapsed(!isSheetCollapsed())
 }
 
 function setFocusedPane(id: PaneId | null): void {
@@ -295,6 +320,8 @@ for (const [id, btn] of Object.entries(paneMaxBtns) as [PaneId, HTMLButtonElemen
 
 setupToggleBtn.addEventListener('click', toggleSetup)
 setupRail.addEventListener('click', () => setSetupCollapsed(false))
+sheetBtn.addEventListener('click', toggleSheet)
+sheetRail.addEventListener('click', () => setSheetCollapsed(false))
 
 new ResizeObserver(() => charts.resize()).observe(workspace)
 
@@ -406,7 +433,6 @@ function clearUiBuffer(): void {
 
 function refreshScoresheet(force = false): void {
   const bestId = orch.pop.bestId
-  sheetBtn.disabled = bestId === 0
   if (bestId === 0) {
     if (sheetBestId !== 0 || force) {
       sheetBestId = 0
@@ -414,7 +440,7 @@ function refreshScoresheet(force = false): void {
     }
     return
   }
-  if (!force && focusedPane !== 'sheet') return
+  if (!force && isSheetCollapsed()) return
   if (!force && bestId === sheetBestId) return
 
   const bot = orch.pop.getBot(bestId)
@@ -438,18 +464,12 @@ function refreshScoresheet(force = false): void {
   sheetBestId = bestId
 }
 
-function openScoresheet(): void {
-  setFocusedPane('sheet')
-  refreshScoresheet(true)
-}
-
 function applyStats(s: { created: number; best: number; bestId: number; popSize: number }): void {
   ;(document.getElementById('statCreated') as HTMLElement).textContent = String(s.created)
   ;(document.getElementById('statPop') as HTMLElement).textContent = String(s.popSize)
   ;(document.getElementById('statBest') as HTMLElement).textContent =
     `${s.best.toFixed(1)} (#${s.bestId})`
-  sheetBtn.disabled = s.bestId === 0
-  if (focusedPane === 'sheet' && s.bestId !== sheetBestId) refreshScoresheet(true)
+  if (!isSheetCollapsed() && s.bestId !== sheetBestId) refreshScoresheet(true)
 }
 
 function flushConsole(): void {
@@ -477,7 +497,7 @@ function flushCharts(): void {
   if (pendingStats) {
     applyStats(pendingStats)
     pendingStats = null
-  } else if (focusedPane === 'sheet' && orch.pop.bestId !== sheetBestId) {
+  } else if (!isSheetCollapsed() && orch.pop.bestId !== sheetBestId) {
     refreshScoresheet(true)
   }
 }
@@ -575,7 +595,6 @@ runBtn.addEventListener('click', () => {
 })
 
 pauseBtn.addEventListener('click', () => orch.pause())
-sheetBtn.addEventListener('click', () => openScoresheet())
 
 resetBtn.addEventListener('click', () => {
   orch.pause()
@@ -596,7 +615,6 @@ resetBtn.addEventListener('click', () => {
   setFormDisabled(false)
   sheetBestId = -1
   refreshScoresheet(true)
-  if (focusedPane === 'sheet') setFocusedPane(null)
 })
 
 saveBtn.addEventListener('click', () => {
@@ -647,4 +665,5 @@ exportBtn.addEventListener('click', () => {
 
 pauseBtn.disabled = true
 setupToggleBtn.setAttribute('aria-pressed', 'true')
+sheetBtn.setAttribute('aria-pressed', 'false')
 scheduleChartResize()
