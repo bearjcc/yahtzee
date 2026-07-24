@@ -14,21 +14,30 @@ export interface EvolveParams {
   /** Stop when best unchanged for this many new bots (0 = off). */
   endStagnation: number
   batchSize: number
+  /** Probability of two-parent crossover; else asexual mutate-from-one. */
+  pCrossover: number
+  /** Fraction of fitness games that share a batch-wide seed suite. */
+  sharedGameFraction: number
+  /** Subtract this times sample stdev from mean score for fitness. */
+  fitnessStdPenalty: number
 }
 
 export const DEFAULT_PARAMS: EvolveParams = {
   k: 1.8,
   seedCount: 100,
-  gamesPerFitness: 15,
-  pMut: 0.03,
-  mutSigma: 0.08,
+  gamesPerFitness: 40,
+  pMut: 0.001,
+  mutSigma: 0.02,
   maxBots: 400,
   hidden1: 64,
   hidden2: 48,
   endMaxBots: 0,
-  endTargetScore: 700,
+  endTargetScore: 280,
   endStagnation: 2000,
   batchSize: 16,
+  pCrossover: 0.25,
+  sharedGameFraction: 0.5,
+  fitnessStdPenalty: 0.25,
 }
 
 export const BYTES_PER_FLOAT = 4

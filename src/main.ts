@@ -101,10 +101,10 @@ const about = el('details', { class: 'about' }, [
   el('summary', {}, ['How it works']),
   el('div', { class: 'about-body' }, [
     el('p', {}, [
-      'Each bot plays a few full games; its fitness is the average score. You start with a pool of random seeds. New bots are children of two parents, with a chance of mutation.',
+      'Each bot plays a batch of games. Fitness is mean score minus a small stdev penalty (less reward for one lucky spike). Half the games share a batch-wide seed suite (fair compare); the other half are private random seeds (limits overfitting).',
     ]),
     el('p', {}, [
-      'Parents are drawn by lottery: tickets = score^k (k between 1 and 2). Higher scores win more tickets, but nobody is culled until you hit max bots. Old bots stay in the pool, so ticket totals only grow.',
+      'You start with random seed nets. Most children are asexual: one lottery parent, then mutate. Sometimes two parents crossover. Parents are drawn by lottery: tickets = score^k (k between 1 and 2). Nobody is culled until you hit max bots.',
     ]),
     el('p', {}, [
       'Everything runs in your browser (web workers). The terminal streams as bots finish; charts and the top-50 table refresh every couple of seconds so eval stays fast. Save a checkpoint to IndexedDB, or export JSON.',
@@ -143,8 +143,21 @@ const fields = {
   k: numInput('k', 'Lottery k (1-2)', DEFAULT_PARAMS.k, '0.05'),
   seedCount: numInput('seedCount', 'Seed bots', DEFAULT_PARAMS.seedCount, '1'),
   gamesPerFitness: numInput('gamesPerFitness', 'Games / fitness', DEFAULT_PARAMS.gamesPerFitness, '1'),
-  pMut: numInput('pMut', 'Mutation chance', DEFAULT_PARAMS.pMut, '0.01'),
+  pMut: numInput('pMut', 'Mutation chance', DEFAULT_PARAMS.pMut, '0.0001'),
   mutSigma: numInput('mutSigma', 'Mutation sigma', DEFAULT_PARAMS.mutSigma, '0.01'),
+  pCrossover: numInput('pCrossover', 'Crossover chance', DEFAULT_PARAMS.pCrossover, '0.01'),
+  sharedGameFraction: numInput(
+    'sharedGameFraction',
+    'Shared game fraction',
+    DEFAULT_PARAMS.sharedGameFraction,
+    '0.05',
+  ),
+  fitnessStdPenalty: numInput(
+    'fitnessStdPenalty',
+    'Fitness stdev penalty',
+    DEFAULT_PARAMS.fitnessStdPenalty,
+    '0.05',
+  ),
   maxBots: numInput('maxBots', 'Max bots (prune)', DEFAULT_PARAMS.maxBots, '1'),
   hidden1: numInput('hidden1', 'Hidden layer 1', DEFAULT_PARAMS.hidden1, '1'),
   hidden2: numInput('hidden2', 'Hidden layer 2', DEFAULT_PARAMS.hidden2, '1'),
@@ -333,6 +346,9 @@ function readParams(): EvolveParams {
     gamesPerFitness: Math.max(1, Math.floor(g('gamesPerFitness'))),
     pMut: Math.max(0, Math.min(1, g('pMut'))),
     mutSigma: Math.max(0, g('mutSigma')),
+    pCrossover: Math.max(0, Math.min(1, g('pCrossover'))),
+    sharedGameFraction: Math.max(0, Math.min(1, g('sharedGameFraction'))),
+    fitnessStdPenalty: Math.max(0, g('fitnessStdPenalty')),
     maxBots: Math.max(10, Math.floor(g('maxBots'))),
     hidden1: Math.max(4, Math.floor(g('hidden1'))),
     hidden2: Math.max(4, Math.floor(g('hidden2'))),

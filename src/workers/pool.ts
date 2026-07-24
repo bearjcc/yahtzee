@@ -4,8 +4,8 @@ import type { WorkerRequest, WorkerResponse } from './evalWorker.ts'
 export type EvalJob = {
   genome: Float32Array
   shape: NetShape
-  gamesPerFitness: number
-  baseSeed: number
+  gameSeeds: number[]
+  fitnessStdPenalty: number
   parentA: number | null
   parentB: number | null
 }
@@ -14,6 +14,7 @@ export type EvalJobResult = {
   jobId: number
   fitness: number
   gameScores: number[]
+  gameSeeds: number[]
   genome: Float32Array
   parentA: number | null
   parentB: number | null
@@ -71,8 +72,8 @@ export class WorkerPool {
         jobId: item.jobId,
         genome: item.job.genome,
         shape: item.job.shape,
-        gamesPerFitness: item.job.gamesPerFitness,
-        baseSeed: item.job.baseSeed,
+        gameSeeds: item.job.gameSeeds,
+        fitnessStdPenalty: item.job.fitnessStdPenalty,
         parentA: item.job.parentA,
         parentB: item.job.parentB,
       }
@@ -90,6 +91,7 @@ export class WorkerPool {
         jobId: data.jobId,
         fitness: data.fitness,
         gameScores: data.gameScores,
+        gameSeeds: data.gameSeeds,
         genome: data.genome,
         parentA: item.job.parentA,
         parentB: item.job.parentB,

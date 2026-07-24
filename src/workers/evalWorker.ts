@@ -1,12 +1,12 @@
 import { evaluateGenome } from '../evolve/evaluate.ts'
-import type { NetShape } from '../nn/network.ts'
+import type { NetShape } from '../nn/index.ts'
 
 export type WorkerRequest = {
   jobId: number
   genome: Float32Array
   shape: NetShape
-  gamesPerFitness: number
-  baseSeed: number
+  gameSeeds: number[]
+  fitnessStdPenalty: number
   parentA: number | null
   parentB: number | null
 }
@@ -15,6 +15,7 @@ export type WorkerResponse = {
   jobId: number
   fitness: number
   gameScores: number[]
+  gameSeeds: number[]
   genome: Float32Array
 }
 
@@ -25,11 +26,17 @@ const ctx = self as unknown as {
 
 ctx.onmessage = (ev: MessageEvent<WorkerRequest>) => {
   const msg = ev.data
-  const result = evaluateGenome(msg.genome, msg.shape, msg.gamesPerFitness, msg.baseSeed)
+  const result = evaluateGenome(
+    msg.genome,
+    msg.shape,
+    msg.gameSeeds,
+    msg.fitnessStdPenalty,
+  )
   const res: WorkerResponse = {
     jobId: msg.jobId,
     fitness: result.fitness,
     gameScores: result.gameScores,
+    gameSeeds: result.gameSeeds,
     genome: msg.genome,
   }
   ctx.postMessage(res, [msg.genome.buffer])

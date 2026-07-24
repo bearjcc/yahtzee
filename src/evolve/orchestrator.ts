@@ -1,5 +1,6 @@
 import { Population } from './population.ts'
 import type { EvolveParams } from './params.ts'
+import { buildGameSeeds, cryptoUnit } from './evaluate.ts'
 import { WorkerPool } from '../workers/pool.ts'
 import type { BotRecord } from './population.ts'
 
@@ -15,6 +16,7 @@ export class Orchestrator {
   private running = false
   private paused = false
   private listeners: Array<(e: OrchEvent) => void> = []
+  private batchSharedCounter = 0
 
   constructor(params: EvolveParams) {
     this.pop = new Population(params)
@@ -38,6 +40,25 @@ export class Orchestrator {
   configure(params: EvolveParams): void {
     if (this.running) return
     this.pop.reset(params)
+    this.batchSharedCounter = 0
+  }
+
+  private nextSharedBase(): number {
+    this.batchSharedCounter++
+    return (this.batchSharedCounter * 2654435761) >>> 0
+  }
+
+  /** Same shared suite for every job in a batch; private half differs per bot. */
+  private makeBatchJobSeeds(batchSize: number): number[][] {
+    const p = this.pop.params
+    const sharedBase = this.nextSharedBase()
+    const out: number[][] = []
+    for (let i = 0; i < batchSize; i++) {
+      out.push(
+        buildGameSeeds(p.gamesPerFitness, p.sharedGameFraction, sharedBase, cryptoUnit),
+      )
+    }
+    return out
   }
 
   async start(): Promise<void> {
@@ -86,14 +107,15 @@ export class Orchestrator {
 
   private async seedWave(): Promise<void> {
     const p = this.pop.params
+    const seedLists = this.makeBatchJobSeeds(p.seedCount)
     const jobs = []
     for (let i = 0; i < p.seedCount; i++) {
       const genome = this.pop.makeSeedGenome()
       jobs.push({
         genome,
         shape: this.pop.shape,
-        gamesPerFitness: p.gamesPerFitness,
-        baseSeed: (i * 7919 + 1) >>> 0,
+        gameSeeds: seedLists[i]!,
+        fitnessStdPenalty: p.fitnessStdPenalty,
         parentA: null as number | null,
         parentB: null as number | null,
       })
@@ -106,6 +128,7 @@ export class Orchestrator {
         genome: r.genome,
         fitness: r.fitness,
         gameScores: r.gameScores,
+        gameSeeds: r.gameSeeds,
         parentA: null,
         parentB: null,
       })
@@ -116,21 +139,25 @@ export class Orchestrator {
   private async childBatch(): Promise<void> {
     const p = this.pop.params
     const n = Math.max(1, p.batchSize)
-    const jobs = []
+    const planned: Array<{
+      genome: Float32Array
+      parentA: number
+      parentB: number | null
+    }> = []
     for (let i = 0; i < n; i++) {
       if (this.pop.shouldStop()) break
-      const { genome, parentA, parentB } = this.pop.makeChildGenome()
-      const provisionalId = this.pop.nextId + i
-      jobs.push({
-        genome,
-        shape: this.pop.shape,
-        gamesPerFitness: p.gamesPerFitness,
-        baseSeed: (provisionalId * 104729) >>> 0,
-        parentA,
-        parentB,
-      })
+      planned.push(this.pop.makeChildGenome())
     }
-    if (jobs.length === 0) return
+    if (planned.length === 0) return
+    const seedLists = this.makeBatchJobSeeds(planned.length)
+    const jobs = planned.map((c, i) => ({
+      genome: c.genome,
+      shape: this.pop.shape,
+      gameSeeds: seedLists[i]!,
+      fitnessStdPenalty: p.fitnessStdPenalty,
+      parentA: c.parentA,
+      parentB: c.parentB,
+    }))
     const results = await this.pool!.evaluateBatch(jobs)
     results.sort((a, b) => a.jobId - b.jobId)
     for (const r of results) {
@@ -139,6 +166,7 @@ export class Orchestrator {
         genome: r.genome,
         fitness: r.fitness,
         gameScores: r.gameScores,
+        gameSeeds: r.gameSeeds,
         parentA: r.parentA,
         parentB: r.parentB,
       })
@@ -156,7 +184,11 @@ export class Orchestrator {
   private emitBot(bot: BotRecord): void {
     const games = bot.gameScores.join('/')
     const parents =
-      bot.parentA === null ? 'seed' : `${bot.parentA}x${bot.parentB}`
+      bot.parentA === null
+        ? 'seed'
+        : bot.parentB === null
+          ? `${bot.parentA}mut`
+          : `${bot.parentA}x${bot.parentB}`
     this.log(
       `bot ${bot.id}  score ${bot.fitness.toFixed(1)}  parents ${parents}  games ${games}`,
     )

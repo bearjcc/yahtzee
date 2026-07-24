@@ -7,14 +7,16 @@ import {
   OUTPUT_SIZE,
   type NetShape,
 } from '../nn/index.ts'
-import { crossoverAndMutate } from './crossover.ts'
+import { crossoverAndMutate, mutateCopy } from './crossover.ts'
 import { Lottery, ticketsForScore } from './lottery.ts'
-import type { EvolveParams } from './params.ts'
+import { DEFAULT_PARAMS, type EvolveParams } from './params.ts'
 
 export interface BotRecord {
   id: number
   fitness: number
   gameScores: number[]
+  /** Per-game RNG seeds used for fitness; may be absent on legacy checkpoints. */
+  gameSeeds?: number[]
   parentA: number | null
   parentB: number | null
   genome: Float32Array
@@ -66,25 +68,40 @@ export class Population {
     return randomGenome(this.shape, this.rng)
   }
 
-  makeChildGenome(): { genome: Float32Array; parentA: number; parentB: number } {
+  makeChildGenome(): {
+    genome: Float32Array
+    parentA: number
+    parentB: number | null
+  } {
+    if (this.rng() < this.params.pCrossover) {
+      const parentA = this.lottery.draw(this.rng)
+      const parentB = this.lottery.draw(this.rng)
+      const a = this.byId.get(parentA)!.genome
+      const b = this.byId.get(parentB)!.genome
+      const genome = crossoverAndMutate(
+        a,
+        b,
+        this.rng,
+        this.params.pMut,
+        this.params.mutSigma,
+      )
+      return { genome, parentA, parentB }
+    }
     const parentA = this.lottery.draw(this.rng)
-    const parentB = this.lottery.draw(this.rng)
-    const a = this.byId.get(parentA)!.genome
-    const b = this.byId.get(parentB)!.genome
-    const genome = crossoverAndMutate(
-      a,
-      b,
+    const genome = mutateCopy(
+      this.byId.get(parentA)!.genome,
       this.rng,
       this.params.pMut,
       this.params.mutSigma,
     )
-    return { genome, parentA, parentB }
+    return { genome, parentA, parentB: null }
   }
 
   addEvaluated(opts: {
     genome: Float32Array
     fitness: number
     gameScores: number[]
+    gameSeeds: number[]
     parentA: number | null
     parentB: number | null
   }): BotRecord {
@@ -94,6 +111,7 @@ export class Population {
       id,
       fitness: opts.fitness,
       gameScores: opts.gameScores,
+      gameSeeds: opts.gameSeeds,
       parentA: opts.parentA,
       parentB: opts.parentB,
       genome: opts.genome,
@@ -162,6 +180,7 @@ export class Population {
         id: b.id,
         fitness: b.fitness,
         gameScores: b.gameScores,
+        gameSeeds: b.gameSeeds,
         parentA: b.parentA,
         parentB: b.parentB,
         tickets: b.tickets,
@@ -180,13 +199,14 @@ export class Population {
       id: number
       fitness: number
       gameScores: number[]
+      gameSeeds?: number[]
       parentA: number | null
       parentB: number | null
       tickets: number
       genome: number[]
     }>
   }): void {
-    this.reset(data.params)
+    this.reset({ ...DEFAULT_PARAMS, ...data.params })
     this.nextId = data.nextId
     this.bestFitness = data.bestFitness
     this.bestId = data.bestId
